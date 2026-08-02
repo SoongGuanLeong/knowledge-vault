@@ -1,0 +1,47 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  // Load AGENTS.md into the agent's instruction context.
+  // This is how the agent learns the project's policy at session start.
+  "instructions": ["AGENTS.md"],
+
+  // Skills live in .opencode/skills/. See `.opencode/skills/` for the catalog.
+  "skills": {
+    "paths": [".opencode/skills"]
+  },
+
+  // MCP server configuration.
+  // Default-on (universal): github.
+  // Default-off (project-specific / paid APIs): context7, firecrawl, chrome-devtools.
+  // Flip `enabled` to true per-project as needed.
+  "mcp": {
+    "github": {
+      "type": "local",
+      "command": ["npx", "-y", "@modelcontextprotocol/server-github"],
+      "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "{env:GITHUB_TOKEN}" },
+      "enabled": true
+    },
+    "context7": {
+      "type": "remote",
+      "url": "https://mcp.context7.com/mcp",
+      "headers": { "CONTEXT7_API_KEY": "{env:CONTEXT7_API_KEY}" },
+      "enabled": false
+    },
+    "firecrawl": {
+      "type": "local",
+      "command": ["npx", "-y", "firecrawl-mcp"],
+      "env": { "FIRECRAWL_API_KEY": "{env:FIRECRAWL_API_KEY}" },
+      "enabled": false
+    },
+    "chrome-devtools": {
+      "type": "local",
+      "command": ["npx", "-y", "chrome-devtools-mcp@latest"],
+      "enabled": false
+    },
+    "obsidian": {
+      "type": "local",
+      "command": ["npx","@bitbonsai/mcpvault@latest","{env:OBSIDIAN_VAULT_PATH}"],
+      "enabled": false
+    }
+  }
+}
