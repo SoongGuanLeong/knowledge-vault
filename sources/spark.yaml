@@ -1,0 +1,5 @@
+name: spark
+repo: https://github.com/apache/spark.git
+docs_path: docs
+desired:
+  tag: v4.1.3
