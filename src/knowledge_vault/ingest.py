@@ -6,18 +6,19 @@ import json
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from knowledge_vault.config import SourceConfig, SourceError
 from knowledge_vault.git import acquire, resolve_commit
 from knowledge_vault.store import bronze_dir, silver_dir, version_from_tag
 
 
-def _write_json(path: Path, data: dict[str, object]) -> None:
+def _write_json(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
-def _read_json(path: Path) -> dict[str, object]:
+def _read_json(path: Path) -> dict[str, Any]:
     with path.open(encoding="utf-8") as f:
         return json.load(f)
 

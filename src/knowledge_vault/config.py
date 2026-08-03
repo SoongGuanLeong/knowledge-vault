@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import yaml
 
@@ -23,7 +23,7 @@ class SourceConfig:
     desired_tag: str
 
 
-def _require_str(data: dict[str, object], key: str, path: Path) -> str:
+def _require_str(data: dict[str, Any], key: str, path: Path) -> str:
     value = data.get(key)
     if not isinstance(value, str) or value == "":
         raise SourceError(f"invalid source config {path}: missing or non-string field {key!r}")
@@ -56,11 +56,11 @@ def load_source(sources_dir: Path, name: str) -> SourceConfig:
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise SourceError(f"invalid source config {path}: expected a YAML mapping")
-    config_data = cast(dict[str, object], data)
+    config_data = cast(dict[str, Any], data)
     desired_raw = config_data.get("desired")
     if not isinstance(desired_raw, dict):
         raise SourceError(f"invalid source config {path}: missing 'desired' mapping")
-    desired = cast(dict[str, object], desired_raw)
+    desired = cast(dict[str, Any], desired_raw)
     return SourceConfig(
         name=_require_str(config_data, "name", path),
         repo=_require_str(config_data, "repo", path),

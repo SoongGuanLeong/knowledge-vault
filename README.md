@@ -1,56 +1,82 @@
-# template
+# knowledge-vault
 
-A general-purpose Python project starter. Not a Copier template, not a generator — just a folder you copy and start from.
+A reproducible knowledge ingestion foundation for LLM-powered personal knowledge management.
 
----
-
-## What's here
-
-- **`AGENTS.md`** — behavior policy for AI coding agents
-- **`docs/standards/`** — technical rules (Python, testing, infrastructure)
-- **`docs/agents/`** — domain and issue-tracker conventions
-- **`Makefile`** — `make help`, `make lint`, `make format`, `make clean`
-- **`pyproject.toml`** — uv + ruff + pyright + pytest
-- **`opencode.jsonc`** — AI agent config (MCPs, skills, instructions)
-- **`.opencode/plugins/`** — AI agent plugins (e.g. `block-dangerous-git.ts` blocks `git push`, `git reset --hard`, etc.)
-- **`.opencode/skills/`** — AI agent skills
-- **`.env.example`** — environment variable template
-- **`src/`** — Python source (empty starter layout)
+`kv` is a CLI tool that acquires repository snapshots, extracts documentation into a byte-identical silver layer, and records complete provenance at every step — so the same configuration always reproduces the same knowledge snapshot.
 
 ---
+
+## What it does
+
+- **`kv discover <name>`** — list available versions (tags) of a configured source
+- **`kv ingest <name>`** — acquire a pinned repository snapshot into bronze, extract docs into silver, write manifests
+- **`kv list`** — show what's been ingested
+
+## How it works
+
+The store uses a medallion layout:
+
+- **bronze** — full repository snapshot at a pinned commit, with a manifest recording provenance
+- **silver** — byte-identical copy of the configured `docs_path` from bronze, with a manifest and lineage record
+- **gold** — derived indexes (not yet implemented)
+
+Each source is configured via a YAML file in `sources/`:
+
+```yaml
+name: spark
+repo: https://github.com/apache/spark.git
+docs_path: docs
+desired:
+  tag: v4.1.3
+```
 
 ## Getting started
 
 ```bash
-# 1. Copy this folder to a new location
-cp -r ~/projects/template ~/projects/<new-project>
+# Install
+uv sync --extra dev
 
-# 2. Set up environment variables
-cd ~/projects/<new-project>
-cp .env.example .env
-# edit .env with your values
+# Check quality
+make check
 
-# 3. Install Python dependencies
-uv sync
+# Discover available versions
+kv discover spark
 
-# 4. Verify the scaffold
-make help
-make lint
+# Ingest a pinned snapshot
+kv ingest spark
 
-# 5. Add your code under src/<package>/ and tests under tests/.
-#    When you add tests, add a `test` target to the Makefile that runs pytest.
-#    Update pyproject.toml's [project] name and authors.
+# List what's been ingested
+kv list
 ```
 
----
+## Configuration precedence
 
-## Conventions
+CLI flag > environment variable > default:
 
-- **No `CONTEXT.md` / `PROJECT.md` / `DECISIONS.md` stubs.** These are lazy-created when they have content. `CONTEXT.md` is the domain glossary; `docs/adr/NNNN-title.md` holds individual architectural decisions.
-- **No empty placeholders.** If a file isn't relevant to your project, delete it. Don't leave empty stubs.
-- **Standards currency.** Files in `docs/standards/` were last verified against upstream docs in June 2026. Before relying on a rule in a long-lived project, re-verify against current docs if more than 6 months have passed.
+| Setting | Flag | Env var | Default |
+|---|---|---|---|
+| Store location | `--store` | `KV_STORE` | `<project-root>/../knowledge-store` |
+| Sources directory | `--sources` | `KV_SOURCES` | `<project-root>/sources` |
 
----
+## Project structure
+
+```
+src/knowledge_vault/     # Python package
+  cli.py                 # argparse CLI (discover, ingest, list)
+  config.py              # Source config loading from YAML
+  git.py                 # Git wrappers (tag discovery, clone, checkout)
+  ingest.py              # Orchestration (bronze + silver pipeline)
+  store.py               # Store layout helpers
+tests/                   # CLI-seam tests (fully offline, fixture git repos)
+sources/                 # Per-source YAML config files
+```
+
+## Standards
+
+- Python 3.11+, uv-only dependency management
+- `src/` layout, ruff formatting/linting, basedpyright strict
+- Tests run fully offline against local fixture git repos
+- See `docs/standards/` for detailed rules
 
 ## License
 

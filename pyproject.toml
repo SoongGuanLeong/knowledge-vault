@@ -13,8 +13,9 @@ kv = "knowledge_vault.cli:main"
 [project.optional-dependencies]
 dev = [
     "ruff>=0.12",
-    "pyright>=1.1",
+    "basedpyright>=1.31",
     "pytest>=8",
+    "pytest-cov>=7",
 ]
 
 [build-system]
@@ -31,12 +32,24 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "B", "UP", "N"]
 
-[tool.pyright]
+[tool.basedpyright]
 include = ["src"]
+exclude = ["tests"]
 pythonVersion = "3.11"
 typeCheckingMode = "strict"
 reportMissingImports = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra --strict-markers"
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--cov=knowledge_vault",
+    "--cov-report=term-missing",
+]
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.6.1",
+    "pyright>=1.1.411",
+]
