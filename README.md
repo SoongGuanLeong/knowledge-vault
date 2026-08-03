@@ -8,9 +8,36 @@ A reproducible knowledge ingestion foundation for LLM-powered personal knowledge
 
 ## What it does
 
+- **`kv init`** — create a new knowledge store
 - **`kv discover <name>`** — list available versions (tags) of a configured source
 - **`kv ingest <name>`** — acquire a pinned repository snapshot into bronze, extract docs into silver, write manifests
 - **`kv list`** — show what's been ingested
+- **`kv status [--deep]`** — check store for drift against declared source configs
+- **`kv doctor`** — pre-flight environment and source config checks
+
+## Source configuration
+
+Each source is configured via a YAML file (`*`.yaml or `*.yml) in `sources/`:
+
+```yaml
+# single desired tag (legacy)
+name: spark
+repo: https://github.com/apache/spark.git
+docs_path: docs
+desired:
+  tag: v4.1.3
+```
+
+```yaml
+# multiple desired tags (current)
+name: spark
+repo: https://github.com/apache/spark.git
+docs_path: docs
+desired:
+  tags:
+    - v0.1.0
+    - v0.2.0
+```
 
 ## How it works
 
@@ -19,16 +46,6 @@ The store uses a medallion layout:
 - **bronze** — full repository snapshot at a pinned commit, with a manifest recording provenance
 - **silver** — byte-identical copy of the configured `docs_path` from bronze, with a manifest and lineage record
 - **gold** — derived indexes (not yet implemented)
-
-Each source is configured via a YAML file in `sources/`:
-
-```yaml
-name: spark
-repo: https://github.com/apache/spark.git
-docs_path: docs
-desired:
-  tag: v4.1.3
-```
 
 ## Getting started
 
@@ -39,14 +56,23 @@ uv sync --extra dev
 # Check quality
 make check
 
+# Initialize a store
+kv init --store /path/to/store
+
 # Discover available versions
-kv discover spark
+kv discover spark --sources ./sources --store /path/to/store
 
 # Ingest a pinned snapshot
-kv ingest spark
+kv ingest spark --sources ./sources --store /path/to/store
 
 # List what's been ingested
-kv list
+kv list --store /path/to/store
+
+# Check for drift
+kv status --sources ./sources --store /path/to/store
+
+# Pre-flight checks
+kv doctor --sources ./sources --store /path/to/store
 ```
 
 ## Configuration precedence
@@ -62,11 +88,11 @@ CLI flag > environment variable > default:
 
 ```
 src/knowledge_vault/     # Python package
-  cli.py                 # argparse CLI (discover, ingest, list)
+  cli.py                 # argparse CLI (init, discover, ingest, list, status, doctor)
   config.py              # Source config loading from YAML
   git.py                 # Git wrappers (tag discovery, clone, checkout)
   ingest.py              # Orchestration (bronze + silver pipeline)
-  store.py               # Store layout helpers
+  store.py               # Store layout helpers (init, metadata, medallion dirs)
 tests/                   # CLI-seam tests (fully offline, fixture git repos)
 sources/                 # Per-source YAML config files
 ```
