@@ -38,7 +38,7 @@ def test_discover_lists_available_tags(run_cli, sources_dir, store_dir) -> None:
 
 
 def test_ingest_creates_bronze_snapshot(run_cli, sources_dir, store_dir, repo_url) -> None:
-    result = run_cli(["ingest", "spark", "--store", str(store_dir), "--sources", str(sources_dir)])
+    result = run_cli(["ingest", "spark", "--tag", "v0.1.0", "--store", str(store_dir), "--sources", str(sources_dir)])
     assert result.returncode == 0, result.stderr
 
     bronze = store_dir / "bronze" / "spark" / "0.1.0"
@@ -55,7 +55,7 @@ def test_ingest_creates_bronze_snapshot(run_cli, sources_dir, store_dir, repo_ur
 
 
 def test_bronze_is_full_repo_snapshot(run_cli, sources_dir, store_dir) -> None:
-    result = run_cli(["ingest", "spark", "--store", str(store_dir), "--sources", str(sources_dir)])
+    result = run_cli(["ingest", "spark", "--tag", "v0.1.0", "--store", str(store_dir), "--sources", str(sources_dir)])
     assert result.returncode == 0, result.stderr
 
     bronze_repo = store_dir / "bronze" / "spark" / "0.1.0" / "repo"
@@ -64,7 +64,7 @@ def test_bronze_is_full_repo_snapshot(run_cli, sources_dir, store_dir) -> None:
 
 
 def test_ingest_silver_is_byte_identical(run_cli, sources_dir, store_dir, fixture_repo) -> None:
-    result = run_cli(["ingest", "spark", "--store", str(store_dir), "--sources", str(sources_dir)])
+    result = run_cli(["ingest", "spark", "--tag", "v0.1.0", "--store", str(store_dir), "--sources", str(sources_dir)])
     assert result.returncode == 0, result.stderr
 
     silver = store_dir / "silver" / "spark" / "0.1.0" / "docs"
@@ -75,7 +75,7 @@ def test_ingest_silver_is_byte_identical(run_cli, sources_dir, store_dir, fixtur
 
 
 def test_ingest_writes_silver_manifests(run_cli, sources_dir, store_dir) -> None:
-    result = run_cli(["ingest", "spark", "--store", str(store_dir), "--sources", str(sources_dir)])
+    result = run_cli(["ingest", "spark", "--tag", "v0.1.0", "--store", str(store_dir), "--sources", str(sources_dir)])
     assert result.returncode == 0, result.stderr
 
     silver = store_dir / "silver" / "spark" / "0.1.0"
@@ -91,10 +91,10 @@ def test_ingest_writes_silver_manifests(run_cli, sources_dir, store_dir) -> None
 
 
 def test_ingest_is_idempotent(run_cli, sources_dir, store_dir) -> None:
-    first = run_cli(["ingest", "spark", "--store", str(store_dir), "--sources", str(sources_dir)])
+    first = run_cli(["ingest", "spark", "--tag", "v0.1.0", "--store", str(store_dir), "--sources", str(sources_dir)])
     assert first.returncode == 0, first.stderr
 
-    second = run_cli(["ingest", "spark", "--store", str(store_dir), "--sources", str(sources_dir)])
+    second = run_cli(["ingest", "spark", "--tag", "v0.1.0", "--store", str(store_dir), "--sources", str(sources_dir)])
     assert second.returncode == 0, second.stderr
     assert "already present" in second.stdout
 
@@ -103,7 +103,7 @@ def test_ingest_is_idempotent(run_cli, sources_dir, store_dir) -> None:
 
 
 def test_list_shows_ingested_sources(run_cli, sources_dir, store_dir) -> None:
-    result = run_cli(["ingest", "spark", "--store", str(store_dir), "--sources", str(sources_dir)])
+    result = run_cli(["ingest", "spark", "--tag", "v0.1.0", "--store", str(store_dir), "--sources", str(sources_dir)])
     assert result.returncode == 0, result.stderr
 
     result = run_cli(["list", "--store", str(store_dir), "--sources", str(sources_dir)])
@@ -112,8 +112,8 @@ def test_list_shows_ingested_sources(run_cli, sources_dir, store_dir) -> None:
     assert "0.1.0" in result.stdout
 
 
-def test_missing_tag_fails_clearly(run_cli, sources_dir, store_dir, repo_url, make_spark_yaml) -> None:
-    make_spark_yaml(sources_dir / "spark.yaml", repo_url, "v9.9.9")
+def test_missing_tag_fails_clearly(run_cli, sources_dir, store_dir, repo_url, make_multi_tag_yaml) -> None:
+    make_multi_tag_yaml(sources_dir / "spark.yaml", repo_url, ["v9.9.9"])
     result = run_cli(["ingest", "spark", "--store", str(store_dir), "--sources", str(sources_dir)])
     assert result.returncode != 0
     assert "v9.9.9" in result.stderr
@@ -123,7 +123,7 @@ def test_store_flag_beats_env_var(run_cli, sources_dir, tmp_path) -> None:
     env_store = tmp_path / "env-store"
     flag_store = tmp_path / "flag-store"
     result = run_cli(
-        ["ingest", "spark", "--store", str(flag_store), "--sources", str(sources_dir)],
+        ["ingest", "spark", "--tag", "v0.1.0", "--store", str(flag_store), "--sources", str(sources_dir)],
         env={"KV_STORE": str(env_store)},
     )
     assert result.returncode == 0, result.stderr
@@ -133,6 +133,8 @@ def test_store_flag_beats_env_var(run_cli, sources_dir, tmp_path) -> None:
 
 def test_env_var_store_used_without_flag(run_cli, sources_dir, tmp_path) -> None:
     env_store = tmp_path / "env-store"
-    result = run_cli(["ingest", "spark", "--sources", str(sources_dir)], env={"KV_STORE": str(env_store)})
+    result = run_cli(
+        ["ingest", "spark", "--tag", "v0.1.0", "--sources", str(sources_dir)], env={"KV_STORE": str(env_store)}
+    )
     assert result.returncode == 0, result.stderr
     assert (env_store / "bronze" / "spark" / "0.1.0").is_dir()

@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from knowledge_vault.store import init_store
+
 
 def run_git(cwd: Path, *args: str) -> None:
     """Run a git command in a directory, raising on failure."""
@@ -54,6 +56,15 @@ def write_spark_yaml(path: Path, repo: str, tag: str) -> None:
     path.write_text(f"name: spark\nrepo: {repo}\ndocs_path: docs\ndesired:\n  tag: {tag}\n", encoding="utf-8")
 
 
+def write_multi_tag_yaml(path: Path, repo: str, tags: list[str]) -> None:
+    """Write a source config with multiple desired tags."""
+    tags_str = "\n".join(f"  - {t}" for t in tags)
+    path.write_text(
+        f"name: spark\nrepo: {repo}\ndocs_path: docs\ndesired:\n  tags:\n{tags_str}\n",
+        encoding="utf-8",
+    )
+
+
 @pytest.fixture
 def make_spark_yaml() -> Callable[[Path, str, str], None]:
     """Fixture exposing the helper that writes a spark source config."""
@@ -61,12 +72,25 @@ def make_spark_yaml() -> Callable[[Path, str, str], None]:
 
 
 @pytest.fixture
+def make_multi_tag_yaml() -> Callable[[Path, str, list[str]], None]:
+    """Fixture exposing the helper that writes a multi-tag source config."""
+    return write_multi_tag_yaml
+
+
+@pytest.fixture
 def sources_dir(tmp_path: Path, repo_url: str) -> Path:
     """A temp sources dir with a default spark.yaml pointing at the fixture repo."""
     d = tmp_path / "sources"
     d.mkdir()
-    write_spark_yaml(d / "spark.yaml", repo_url, "v0.1.0")
+    write_multi_tag_yaml(d / "spark.yaml", repo_url, ["v0.1.0", "v0.2.0"])
     return d
+
+
+@pytest.fixture
+def store_initialized(store_dir: Path) -> Path:
+    """A pre-initialized knowledge store."""
+    init_store(store_dir)
+    return store_dir
 
 
 @pytest.fixture

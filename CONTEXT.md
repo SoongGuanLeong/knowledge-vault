@@ -15,15 +15,27 @@ Single-context vocabulary for this repo. Terms are the shared language used acro
 - **source** — a configured project to acquire knowledge from (e.g. Apache Spark). Declared in a per-source YAML file.
 - **repository snapshot** — a full generic checkout of a source repo at an exact commit. Acquisition knows nothing about docs vs. code.
 - **partial clone** — `git clone --filter=blob:none`; full working tree with lazy blob fetching, so snapshots are cheap.
-- **desired** — the intent declared in config (e.g. `desired.tag: v4.1.3`).
+- **desired** — the intent declared in config (e.g. `desired.tags: [v4.1.3, v3.5]`). Plural form supports multi-version ingestion.
 - **actual** — what was really acquired, recorded in the manifest (resolved tag + commit SHA + timestamp).
+- **requested_tag** — the specific tag being ingested in a single-ingest context (via `--tag` override).
 - **manifest** — an immutable JSON record of exactly what was acquired/extracted and when.
 - **lineage** — provenance record linking a silver artifact to the bronze snapshot that produced it.
 - **ingest** — the pipeline that runs acquisition (→ bronze) and the docs pipeline (→ silver).
 - **version pinning** — tags pinned in config; acquisition is deterministic; updates are deliberate config edits.
+- **store initialization** — running `kv init` creates the medallion directory structure (`bronze/`, `silver/`, `gold/`, `cache/`) and `metadata.json` at the store root.
+- **store schema version** — integer in `metadata.json` recording the store format version; current = 1.
 
 ## Pipelines
 
 - **docs pipeline** — the step that selects a snapshot's `docs_path` and copies it byte-identically into silver. No transformation.
 - **knowledge-vault** — this code repo (the Python application).
 - **engineering-vault** — future Obsidian vault; the human-curated knowledge layer.
+
+## CLI operations
+
+- **kv init** — creates the medallion store structure and ``metadata.json``.
+- **kv ingest** — acquires source snapshots into bronze and copies docs into silver. Additive-only, idempotent. Supports ``--tag`` for single-version override.
+- **kv status** — offline audit comparing source configs against store manifests. Reports missing, stale, and drift. Exit 0 (healthy) / 1 (drift). ``--deep`` verifies remote commits.
+- **kv doctor** — pre-flight checks (git, partial-clone support, YAML validity, remote reachability, store writability, schema compat). Reports PASS/WARN/FAIL. Exit 0 (all pass) / 1 (any fail).
+- **kv discover** — lists available tags for a source on the remote.
+- **kv list** — lists all ingested source versions in the store.

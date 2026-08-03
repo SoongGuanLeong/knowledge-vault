@@ -77,6 +77,76 @@ def resolve_commit(repo_url: str, tag: str) -> str:
     return commits[tag]
 
 
+def remote_reachable(repo_url: str) -> bool:
+    """Check whether *repo_url* is reachable via ``git ls-remote``.
+
+    Parameters
+    ----------
+    repo_url : str
+        Remote repository URL.
+
+    Returns
+    -------
+    bool
+        True if the remote responds, False otherwise.
+    """
+    completed = subprocess.run(["git", "ls-remote", "--exit-code", repo_url], capture_output=True, text=True)
+    return completed.returncode == 0
+
+
+def git_version_tuple() -> tuple[int, int, int]:
+    """Return the installed git version as a (major, minor, patch) tuple.
+
+    Returns
+    -------
+    tuple[int, int, int]
+        Parsed version components.
+    """
+    output = subprocess.run(["git", "--version"], capture_output=True, text=True, check=True).stdout
+    parts = output.strip().split()
+    version_str = parts[2] if len(parts) >= 3 and parts[1] == "version" else (parts[1] if len(parts) > 1 else "0.0.0")
+    components = version_str.split(".")
+    major = int(components[0]) if len(components) > 0 and components[0].isdigit() else 0
+    minor = int(components[1]) if len(components) > 1 and components[1].isdigit() else 0
+    patch = int(components[2]) if len(components) > 2 and components[2].isdigit() else 0
+    return (major, minor, patch)
+
+
+def supports_partial_clone() -> bool:
+    """Check whether the installed git supports partial clone (``--filter``).
+
+    Returns
+    -------
+    bool
+        True if git >= 2.17 (partial clone became usable in 2.17).
+    """
+    return git_version_tuple() >= (2, 17, 0)
+
+
+def remote_commit_resolves(repo_url: str, tag: str, expected_commit: str) -> bool:
+    """Verify that *tag* in *repo_url* still resolves to *expected_commit*.
+
+    Parameters
+    ----------
+    repo_url : str
+        Remote repository URL.
+    tag : str
+        Tag name to check.
+    expected_commit : str
+        The commit SHA the tag is expected to point at.
+
+    Returns
+    -------
+    bool
+        True if the tag resolves to the expected commit, False otherwise.
+    """
+    try:
+        resolved = resolve_commit(repo_url, tag)
+    except GitError:
+        return False
+    return resolved == expected_commit
+
+
 def acquire(repo_url: str, tag: str, commit: str, dest: Path) -> None:
     """Partial-clone *repo_url* and check out *commit* into *dest*.
 
