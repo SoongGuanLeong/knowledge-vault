@@ -100,6 +100,73 @@ def store_dir(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def docs_repo(tmp_path: Path) -> Path:
+    """A git repository with a comprehensive docs tree for testing selective extraction.
+
+    Tests every doc extension (.md, .rst, .html, .txt, .adoc) and every skip
+    category (binary with doc extension, binary without, non-doc text, nested).
+
+    docs/
+    ├── README.md
+    ├── guide.rst
+    ├── index.html
+    ├── notes.txt
+    ├── book.adoc
+    ├── image.png
+    ├── logo.svg
+    ├── style.css
+    ├── config.json
+    └── nested/
+        ├── tutorial.md
+        └── picture.jpg
+    """
+    repo = tmp_path / "fixture-docs-repo"
+    docs = repo / "docs"
+    nested = docs / "nested"
+    nested.mkdir(parents=True)
+
+    (docs / "README.md").write_text("# README\n", encoding="utf-8")
+    (docs / "guide.rst").write_text("Guide\n=====\n", encoding="utf-8")
+    (docs / "index.html").write_text("<html></html>\n", encoding="utf-8")
+    (docs / "notes.txt").write_text("Notes\n", encoding="utf-8")
+    (docs / "book.adoc").write_text("= Book =\n", encoding="utf-8")
+    (docs / "Guide.Md").write_text("# Guide (uppercase ext)\n", encoding="utf-8")
+    (docs / "image.png").write_bytes(b"\x89PNG\r\n\x1a\nfake-png")
+    (docs / "logo.svg").write_text("<svg></svg>\n", encoding="utf-8")
+    (docs / "style.css").write_text("body { }\n", encoding="utf-8")
+    (docs / "config.json").write_text('{"key": "value"}\n', encoding="utf-8")
+    (nested / "tutorial.md").write_text("# Tutorial\n", encoding="utf-8")
+    (nested / "picture.jpg").write_bytes(b"\xff\xd8\xff\xe0fake-jpg")
+
+    (repo / "README.md").write_text("# Docs Repo\n", encoding="utf-8")
+
+    run_git(repo, "init", "-q")
+    run_git(repo, "config", "user.email", "test@example.com")
+    run_git(repo, "config", "user.name", "Test")
+    run_git(repo, "config", "uploadpack.allowFilter", "true")
+    run_git(repo, "add", ".")
+    run_git(repo, "commit", "-q", "-m", "docs v1.0.0")
+    run_git(repo, "tag", "v1.0.0")
+    return repo
+
+
+@pytest.fixture
+def docs_repo_url(docs_repo: Path) -> str:
+    return f"file://{docs_repo}"
+
+
+@pytest.fixture
+def docs_sources_dir(tmp_path: Path, docs_repo_url: str) -> Path:
+    d = tmp_path / "docs_sources"
+    d.mkdir()
+    (d / "docs.yaml").write_text(
+        f"name: docs\nrepo: {docs_repo_url}\ndocs_path: docs\ndesired:\n  tags:\n    - v1.0.0\n",
+        encoding="utf-8",
+    )
+    return d
+
+
+@pytest.fixture
 def run_cli() -> Callable[..., subprocess.CompletedProcess[str]]:
     """Run the kv CLI as a subprocess against a clean environment."""
 

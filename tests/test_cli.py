@@ -63,7 +63,7 @@ def test_bronze_is_full_repo_snapshot(run_cli, sources_dir, store_dir) -> None:
     assert (bronze_repo / "docs" / "intro.md").is_file()
 
 
-def test_ingest_silver_is_byte_identical(run_cli, sources_dir, store_dir, fixture_repo) -> None:
+def test_ingest_silver_is_selective(run_cli, sources_dir, store_dir, fixture_repo) -> None:
     result = run_cli(["ingest", "spark", "--tag", "v0.1.0", "--store", str(store_dir), "--sources", str(sources_dir)])
     assert result.returncode == 0, result.stderr
 
@@ -71,7 +71,10 @@ def test_ingest_silver_is_byte_identical(run_cli, sources_dir, store_dir, fixtur
     source_docs = fixture_repo / "docs"
     assert (silver / "intro.md").read_bytes() == (source_docs / "intro.md").read_bytes()
     assert (silver / "sql.md").read_bytes() == (source_docs / "sql.md").read_bytes()
-    assert (silver / "img" / "logo.png").read_bytes() == (source_docs / "img" / "logo.png").read_bytes()
+    # binary/non-doc files are excluded from silver
+    assert not (silver / "img" / "logo.png").exists()
+    # bronze remains the source of truth
+    assert (store_dir / "bronze" / "spark" / "0.1.0" / "repo" / "docs" / "img" / "logo.png").exists()
 
 
 def test_ingest_writes_silver_manifests(run_cli, sources_dir, store_dir) -> None:
@@ -82,8 +85,14 @@ def test_ingest_writes_silver_manifests(run_cli, sources_dir, store_dir) -> None
     manifest = load_json(silver / "manifest.json")
     assert manifest["name"] == "spark"
     assert manifest["version"] == "0.1.0"
-    assert manifest["file_count"] == 3
-    assert manifest["files"] == ["img/logo.png", "intro.md", "sql.md"]
+    assert manifest["file_count"] == 2
+    assert manifest["files"] == ["intro.md", "sql.md"]
+    assert ".md" in manifest["extraction_patterns"]
+    inventory = manifest["extraction_inventory"]
+    assert inventory["total_files_discovered"] == 3
+    assert inventory["included"].__len__() == 2
+    assert inventory["skipped"].__len__() == 1
+    assert inventory["skipped"][0]["reason"] == "binary_or_non_doc"
 
     lineage = load_json(silver / "lineage.json")
     assert lineage["silver"]["version"] == "0.1.0"
@@ -138,3 +147,85 @@ def test_env_var_store_used_without_flag(run_cli, sources_dir, tmp_path) -> None
     )
     assert result.returncode == 0, result.stderr
     assert (env_store / "bronze" / "spark" / "0.1.0").is_dir()
+
+
+# --- selective extraction with comprehensive fixture ---
+
+
+def test_ingest_silver_selective_all_extensions(run_cli, docs_sources_dir, store_dir, docs_repo) -> None:
+    result = run_cli(["ingest", "docs", "--store", str(store_dir), "--sources", str(docs_sources_dir)])
+    assert result.returncode == 0, result.stderr
+
+    silver = store_dir / "silver" / "docs" / "1.0.0" / "docs"
+    source_docs = docs_repo / "docs"
+
+    expected_files = [
+        "README.md",
+        "Guide.Md",
+        "guide.rst",
+        "index.html",
+        "notes.txt",
+        "book.adoc",
+        "nested/tutorial.md",
+    ]
+    for f in expected_files:
+        assert (silver / f).is_file(), f"Expected {f} in silver"
+        assert (silver / f).read_bytes() == (source_docs / f).read_bytes()
+
+    excluded_files = [
+        "image.png",
+        "logo.svg",
+        "style.css",
+        "config.json",
+        "nested/picture.jpg",
+    ]
+    for f in excluded_files:
+        assert not (silver / f).exists(), f"Did not expect {f} in silver"
+
+    for f in excluded_files:
+        assert (store_dir / "bronze" / "docs" / "1.0.0" / "repo" / "docs" / f).is_file(), f"Bronze should retain {f}"
+
+
+def test_ingest_silver_manifest_inventory(run_cli, docs_sources_dir, store_dir) -> None:
+    result = run_cli(["ingest", "docs", "--store", str(store_dir), "--sources", str(docs_sources_dir)])
+    assert result.returncode == 0, result.stderr
+
+    silver = store_dir / "silver" / "docs" / "1.0.0"
+    manifest = load_json(silver / "manifest.json")
+
+    assert manifest["name"] == "docs"
+    assert manifest["version"] == "1.0.0"
+    assert manifest["file_count"] == 7
+    assert manifest["files"] == [
+        "Guide.Md",
+        "README.md",
+        "book.adoc",
+        "guide.rst",
+        "index.html",
+        "nested/tutorial.md",
+        "notes.txt",
+    ]
+    assert manifest["extraction_patterns"] == [".md", ".mdx", ".rst", ".txt", ".adoc", ".html"]
+
+    inventory = manifest["extraction_inventory"]
+    assert inventory["total_files_discovered"] == 12
+    assert len(inventory["included"]) == 7
+    assert len(inventory["skipped"]) == 5
+
+    skipped_sources = [s["source"] for s in inventory["skipped"]]
+    assert "image.png" in skipped_sources
+    assert "logo.svg" in skipped_sources
+    assert "style.css" in skipped_sources
+    assert "config.json" in skipped_sources
+    assert "nested/picture.jpg" in skipped_sources
+
+    for entry in inventory["skipped"]:
+        assert entry["reason"] == "binary_or_non_doc"
+
+    for entry in inventory["included"]:
+        assert "checksum" in entry
+        assert "source" in entry
+
+    lineage = load_json(silver / "lineage.json")
+    assert lineage["silver"]["version"] == "1.0.0"
+    assert lineage["bronze"]["commit"]

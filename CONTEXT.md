@@ -6,7 +6,7 @@ Single-context vocabulary for this repo. Terms are the shared language used acro
 
 - **knowledge-store** — the generated machine data produced by ingestion; lives outside the code repo.
 - **bronze** — first store layer: exact repository snapshots acquired at a pinned commit. Append-only raw material.
-- **silver** — second store layer: selected artifacts extracted from bronze (e.g. documentation copies). Adds provenance.
+- **silver** — second store layer: documentation files extracted from bronze via selective extraction (only `.md`, `.mdx`, `.rst`, `.txt`, `.adoc`, `.html` files). Includes `manifest.json` with extraction inventory and `lineage.json` with provenance.
 - **gold** — third store layer: derived indexes over silver (FTS, vector, symbols, metadata). Not yet implemented.
 - **cache** — transient store area.
 
@@ -28,6 +28,12 @@ Single-context vocabulary for this repo. Terms are the shared language used acro
 ## Pipelines
 
 - **docs pipeline** — the step that selects a snapshot's `docs_path` and copies it byte-identically into silver. No transformation.
+- **pipeline** — the orchestrated sequence of stages (Acquire → Bronze → Silver → Chunk → Index → Gold). Introduced in Project 0.15 as a minimal skeleton.
+- **stage** — one processing unit in the pipeline (e.g. `AcquireStage`, `SilverStage`). Each has an `execute(ctx)` method.
+- **PipelineContext** — immutable dataclass carrying store path, source config, tag, version, commit, and all precomputed sub-paths. Passed between stages.
+- **selective extraction** — Silver copies only documentation files (`.md`, `.mdx`, `.rst`, `.txt`, `.adoc`, `.html`) from bronze, excluding binary assets. Bronze remains the source of truth.
+- **extraction inventory** — manifest sub-structure listing `included` files (with checksum, source, destination) and `skipped` files (with reason), along with `total_files_discovered`.
+- **extraction_patterns** — the list of doc extensions used for selective extraction in the Silver stage.
 - **knowledge-vault** — this code repo (the Python application).
 - **engineering-vault** — future Obsidian vault; the human-curated knowledge layer.
 

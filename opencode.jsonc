@@ -15,12 +15,6 @@
   // Default-off (project-specific / paid APIs): context7, firecrawl, chrome-devtools.
   // Flip `enabled` to true per-project as needed.
   "mcp": {
-    "github": {
-      "type": "local",
-      "command": ["npx", "-y", "@modelcontextprotocol/server-github"],
-      "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "{env:GITHUB_TOKEN}" },
-      "enabled": true
-    },
     "context7": {
       "type": "remote",
       "url": "https://mcp.context7.com/mcp",
