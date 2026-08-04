@@ -20,16 +20,6 @@ A reproducible knowledge ingestion foundation for LLM-powered personal knowledge
 Each source is configured via a YAML file (`*`.yaml or `*.yml) in `sources/`:
 
 ```yaml
-# single desired tag (legacy)
-name: spark
-repo: https://github.com/apache/spark.git
-docs_path: docs
-desired:
-  tag: v4.1.3
-```
-
-```yaml
-# multiple desired tags (current)
 name: spark
 repo: https://github.com/apache/spark.git
 docs_path: docs
