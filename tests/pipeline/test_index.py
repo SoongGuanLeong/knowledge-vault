@@ -131,6 +131,26 @@ def test_index_stage_indexes_chunk_metadata(
     }
 
 
+def test_index_stage_multiple_chunks_all_present(
+    make_ctx: Callable[[], PipelineContext],
+) -> None:
+    ctx = make_ctx()
+    records = [
+        _chunk_record("chunk-1", "a.md", 1, 2, "first"),
+        _chunk_record("chunk-2", "a.md", 3, 4, "second"),
+        _chunk_record("chunk-3", "b.md", 1, 2, "third"),
+    ]
+    _write_chunks(ctx, records)
+
+    IndexStage().execute(ctx)
+
+    index = json.loads((ctx.gold_path / "index" / "metadata.json").read_text(encoding="utf-8"))
+    assert index["chunk_count"] == 3
+    assert set(index["chunks"]) == {"chunk-1", "chunk-2", "chunk-3"}
+    for record in records:
+        assert index["chunks"][record["chunk_id"]]["path"] == record["path"]
+
+
 def test_index_stage_chunks_key_always_present(
     make_ctx: Callable[[], PipelineContext],
 ) -> None:
