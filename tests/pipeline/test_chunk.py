@@ -37,9 +37,13 @@ def test_recursive_split_empty_text_returns_empty() -> None:
 
 def test_recursive_split_uses_paragraph_breaks() -> None:
     text = "p1\n\np2\n\np3"
-    chunks = chunk.recursive_split(text, ["\n\n", "\n", " ", ""], 10)
-    assert "\n\n" not in "".join(c for c in chunks if c != chunks[-1])  # separators retained
+    # chunk_size smaller than text to force splitting on "\n\n"
+    chunks = chunk.recursive_split(text, ["\n\n", "\n", " ", ""], 5)
     assert "".join(chunks) == text
+    assert len(chunks) > 1
+    # every chunk except the last ends on a paragraph break (separator retained)
+    for c in chunks[:-1]:
+        assert c.endswith("\n\n")
 
 
 def test_recursive_split_is_deterministic() -> None:
