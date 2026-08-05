@@ -158,6 +158,22 @@ def test_index_stage_multiple_chunks_all_present(
         assert index["chunks"][record["chunk_id"]]["path"] == record["path"]
 
 
+def test_index_stage_malformed_chunks_line_fails_immediately(
+    make_ctx: Callable[[], PipelineContext],
+) -> None:
+    ctx = make_ctx()
+    _write_chunks(ctx, [])
+    ctx.chunks_path.write_text(
+        '{"chunk_id":"1"}\nthis is not json\n{"chunk_id":"2"}\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(json.JSONDecodeError):
+        IndexStage().execute(ctx)
+
+    assert not (ctx.gold_path / "index" / "metadata.json").exists()
+
+
 def test_index_stage_chunks_key_always_present(
     make_ctx: Callable[[], PipelineContext],
 ) -> None:
