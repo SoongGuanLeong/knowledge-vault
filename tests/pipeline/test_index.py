@@ -15,7 +15,14 @@ from knowledge_vault.pipeline import IndexStage
 from knowledge_vault.pipeline.context import PipelineContext
 
 
-def _chunk_record(chunk_id: str, path: str, start_line: int, end_line: int, text: str) -> dict[str, str | int]:
+def _chunk_record(
+    *,
+    chunk_id: str,
+    path: str,
+    start_line: int,
+    end_line: int,
+    text: str,
+) -> dict[str, str | int]:
     return {
         "chunk_id": chunk_id,
         "source": "test-source",
@@ -110,7 +117,7 @@ def test_index_stage_indexes_chunk_metadata(
     make_ctx: Callable[[], PipelineContext],
 ) -> None:
     ctx = make_ctx()
-    record = _chunk_record("chunk-1", "a.md", 1, 5, "alpha\nbeta")
+    record = _chunk_record(chunk_id="chunk-1", path="a.md", start_line=1, end_line=5, text="alpha\nbeta")
     _write_chunks(ctx, [record])
 
     IndexStage().execute(ctx)
@@ -136,9 +143,9 @@ def test_index_stage_multiple_chunks_all_present(
 ) -> None:
     ctx = make_ctx()
     records = [
-        _chunk_record("chunk-1", "a.md", 1, 2, "first"),
-        _chunk_record("chunk-2", "a.md", 3, 4, "second"),
-        _chunk_record("chunk-3", "b.md", 1, 2, "third"),
+        _chunk_record(chunk_id="chunk-1", path="a.md", start_line=1, end_line=2, text="first"),
+        _chunk_record(chunk_id="chunk-2", path="a.md", start_line=3, end_line=4, text="second"),
+        _chunk_record(chunk_id="chunk-3", path="b.md", start_line=1, end_line=2, text="third"),
     ]
     _write_chunks(ctx, records)
 
@@ -167,8 +174,8 @@ def test_index_stage_no_timestamp_byte_identical_for_identical_input(
     make_ctx: Callable[[], PipelineContext],
 ) -> None:
     records = [
-        _chunk_record("chunk-1", "a.md", 1, 3, "content one"),
-        _chunk_record("chunk-2", "b.md", 1, 2, "content two"),
+        _chunk_record(chunk_id="chunk-1", path="a.md", start_line=1, end_line=3, text="content one"),
+        _chunk_record(chunk_id="chunk-2", path="b.md", start_line=1, end_line=2, text="content two"),
     ]
 
     ctx1 = make_ctx()
@@ -190,7 +197,7 @@ def test_index_stage_skips_when_chunks_sha_matches(
     make_ctx: Callable[[], PipelineContext],
 ) -> None:
     ctx = make_ctx()
-    _write_chunks(ctx, [_chunk_record("chunk-1", "a.md", 1, 2, "stable")])
+    _write_chunks(ctx, [_chunk_record(chunk_id="chunk-1", path="a.md", start_line=1, end_line=2, text="stable")])
 
     stage = IndexStage()
     stage.execute(ctx)
@@ -207,7 +214,7 @@ def test_index_stage_rebuilds_when_chunks_change(
     make_ctx: Callable[[], PipelineContext],
 ) -> None:
     ctx = make_ctx()
-    _write_chunks(ctx, [_chunk_record("chunk-1", "a.md", 1, 2, "old text")])
+    _write_chunks(ctx, [_chunk_record(chunk_id="chunk-1", path="a.md", start_line=1, end_line=2, text="old text")])
 
     stage = IndexStage()
     stage.execute(ctx)
@@ -215,7 +222,7 @@ def test_index_stage_rebuilds_when_chunks_change(
     metadata_json = ctx.gold_path / "index" / "metadata.json"
     original = metadata_json.read_bytes()
 
-    _write_chunks(ctx, [_chunk_record("chunk-1", "a.md", 1, 2, "new text")])
+    _write_chunks(ctx, [_chunk_record(chunk_id="chunk-1", path="a.md", start_line=1, end_line=2, text="new text")])
     stage.execute(ctx)
 
     assert metadata_json.read_bytes() != original
@@ -227,7 +234,7 @@ def test_index_stage_rebuilds_when_existing_index_unparseable(
     make_ctx: Callable[[], PipelineContext],
 ) -> None:
     ctx = make_ctx()
-    _write_chunks(ctx, [_chunk_record("chunk-1", "a.md", 1, 2, "stable")])
+    _write_chunks(ctx, [_chunk_record(chunk_id="chunk-1", path="a.md", start_line=1, end_line=2, text="stable")])
 
     stage = IndexStage()
     stage.execute(ctx)
