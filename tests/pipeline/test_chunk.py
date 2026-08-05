@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
 import string
+import uuid
+from collections.abc import Callable
+from pathlib import Path
 
+import pytest
+
+from knowledge_vault.config import SourceConfig
 from knowledge_vault.pipeline import chunk
+from knowledge_vault.pipeline.context import PipelineContext
 
 
 def _make_doc(paragraphs: int, para_chars: int) -> str:
@@ -141,3 +149,410 @@ def test_line_start_index_is_one_indexed() -> None:
     assert text[starts[0] :] == "l1\nl2\nl3"
     assert text[starts[1] :] == "l2\nl3"
     assert text[starts[2] :] == "l3"
+
+
+# --- Chunk metadata tests (ticket #13 re-verification) ---
+
+
+def test_offset_to_line_maps_to_correct_line() -> None:
+    text = "line1\nline2\nline3"
+    starts = chunk.line_start_index(text)
+    assert chunk._offset_to_line(starts, 0) == 1
+    assert chunk._offset_to_line(starts, 5) == 1  # within line 1 (before \n at index 5)
+    assert chunk._offset_to_line(starts, 6) == 2  # line 2 starts at index 6
+    assert chunk._offset_to_line(starts, 11) == 2  # within line 2
+    assert chunk._offset_to_line(starts, 12) == 3  # line 3 starts at index 12
+
+
+def test_offset_to_line_handles_end_of_text() -> None:
+    text = "abc\ndef"
+    starts = chunk.line_start_index(text)
+    assert chunk._offset_to_line(starts, 6) == 2  # last char of text
+
+
+def test_offset_to_line_empty_text() -> None:
+    starts = chunk.line_start_index("")
+    assert chunk._offset_to_line(starts, 0) == 1
+
+
+def test_build_chunk_record_populates_all_fields(make_build_ctx: Callable[[], tuple[PipelineContext, str]]) -> None:
+    ctx, chunk_text = make_build_ctx()
+    record = chunk._build_chunk_record(chunk_text, "doc.md", ctx)
+
+    assert list(record.keys()) == list(chunk.ChunkRecord.__annotations__.keys())
+    assert len(record) == 9
+    assert record["text"] == chunk_text
+    assert record["path"] == "doc.md"
+    assert record["parent_document"] == "doc.md"
+    assert record["source"] == ctx.config.name
+    assert record["version"] == ctx.version
+
+
+def test_build_chunk_record_chunk_id_is_deterministic_uuidv5(
+    make_build_ctx: Callable[[], tuple[PipelineContext, str]],
+) -> None:
+    ctx, chunk_text = make_build_ctx()
+    record = chunk._build_chunk_record(chunk_text, "doc.md", ctx)
+
+    assert record["chunk_id"] == str(uuid.uuid5(chunk.CHUNK_NAMESPACE, chunk_text))
+    again = chunk._build_chunk_record(chunk_text, "doc.md", ctx)
+    assert record["chunk_id"] == again["chunk_id"]
+
+
+def test_build_chunk_record_chunk_id_varies_with_text(
+    make_ctx: Callable[[], PipelineContext],
+) -> None:
+    ctx = make_ctx()
+    _make_silver_docs(ctx, {"doc.md": "hello\n\nhello!"})
+
+    id1 = chunk._build_chunk_record("hello", "doc.md", ctx)["chunk_id"]
+    id2 = chunk._build_chunk_record("hello", "doc.md", ctx)["chunk_id"]
+    id3 = chunk._build_chunk_record("hello!", "doc.md", ctx)["chunk_id"]
+
+    assert id1 == id2  # same text → same ID
+    assert id3 != id1  # different text → different ID
+
+
+def test_build_chunk_record_sha256_matches_hashlib(
+    make_build_ctx: Callable[[], tuple[PipelineContext, str]],
+) -> None:
+    ctx, chunk_text = make_build_ctx()
+    record = chunk._build_chunk_record(chunk_text, "doc.md", ctx)
+
+    assert record["sha256"] == hashlib.sha256(chunk_text.encode()).hexdigest()
+
+
+def test_build_chunk_record_line_numbers_are_one_indexed(
+    make_ctx: Callable[[], PipelineContext],
+) -> None:
+    ctx = make_ctx()
+    _make_silver_docs(ctx, {"doc.md": "line1\nline2\nline3"})
+    record = chunk._build_chunk_record("line2\nline3", "doc.md", ctx)
+
+    assert record["start_line"] == 2
+    assert record["end_line"] == 3
+
+
+# --- ChunkStage tests (ticket #14) ---
+
+
+@pytest.fixture
+def make_ctx(tmp_path: Path):
+    """Factory producing an isolated PipelineContext under pytest's tmp_path."""
+    counter = 0
+
+    def _make() -> PipelineContext:
+        nonlocal counter
+        counter += 1
+        base = tmp_path / f"ctx-{counter}"
+        config = SourceConfig(
+            name="test-source",
+            repo="file:///fake/repo",
+            docs_path="docs",
+            desired_tags=["v1.0.0"],
+        )
+        store = base / "store"
+        silver = base / "silver" / "test-source" / "1.0.0"
+        bronze = base / "bronze" / "test-source" / "1.0.0"
+        return PipelineContext(
+            store=store,
+            config=config,
+            tag="v1.0.0",
+            version="1.0.0",
+            commit="abc1234",
+            bronze_path=bronze,
+            silver_path=silver,
+            repo_dir=bronze / "repo",
+            manifest_path=bronze / "manifest.json",
+        )
+
+    return _make
+
+
+@pytest.fixture
+def make_build_ctx(make_ctx):
+    """Factory producing a (ctx, chunk_text) pair with a doc on disk for line lookup."""
+
+    def _make() -> tuple[PipelineContext, str]:
+        ctx = make_ctx()
+        _make_silver_docs(ctx, {"doc.md": "para1\n\npara2\n\npara3\n\npara4"})
+        return ctx, "para2\n\npara3"
+
+    return _make
+
+
+def _make_silver_docs(ctx: PipelineContext, docs: dict[str, str]) -> None:
+    docs_dir = ctx.silver_path / "docs"
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    for rel, content in docs.items():
+        p = docs_dir / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+
+
+def test_chunk_stage_creates_output_files(make_ctx: Callable[[], PipelineContext]) -> None:
+    import json
+
+    ctx = make_ctx()
+    _make_silver_docs(ctx, {"a.md": "hello world\n", "b.md": "second doc\n"})
+
+    stage = chunk.ChunkStage()
+    result = stage.execute(ctx)
+    assert result is ctx
+
+    chunks_jsonl = ctx.silver_path / "chunks" / "chunks.jsonl"
+    manifest_json = ctx.silver_path / "chunks" / "manifest.json"
+    assert chunks_jsonl.is_file()
+    assert manifest_json.is_file()
+
+    manifest = json.loads(manifest_json.read_text(encoding="utf-8"))
+    assert manifest["name"] == "test-source"
+    assert manifest["version"] == "1.0.0"
+    assert manifest["total_chunks"] >= 2
+    assert manifest["file_chunks"] == 2
+    assert manifest["chunk_size"] == chunk.DEFAULT_CHUNK_SIZE
+    assert manifest["chunk_overlap"] == chunk.DEFAULT_CHUNK_OVERLAP
+    assert manifest["separators"] == chunk.DEFAULT_SEPARATORS
+    assert "chunks_sha256" in manifest
+    assert "generated_at" in manifest
+    assert manifest["bronze"]["commit"] == "abc1234"
+
+    # chunks_sha256 matches actual file content
+    actual_sha = hashlib.sha256(chunks_jsonl.read_bytes()).hexdigest()
+    assert manifest["chunks_sha256"] == actual_sha
+
+
+def test_chunk_stage_chunks_jsonl_has_9_fields_in_stable_order(
+    make_ctx: Callable[[], PipelineContext],
+) -> None:
+    import json
+
+    ctx = make_ctx()
+    _make_silver_docs(ctx, {"doc.md": "line1\nline2\nline3\n"})
+
+    stage = chunk.ChunkStage()
+    stage.execute(ctx)
+
+    chunks_jsonl = ctx.silver_path / "chunks" / "chunks.jsonl"
+    expected_fields = list(chunk.ChunkRecord.__annotations__.keys())
+    for line in chunks_jsonl.read_text(encoding="utf-8").strip().split("\n"):
+        record = json.loads(line)
+        assert list(record.keys()) == expected_fields
+
+
+def test_chunk_stage_sorts_records_by_path_then_start_line(
+    make_ctx: Callable[[], PipelineContext],
+) -> None:
+    import json
+
+    ctx = make_ctx()
+    _make_silver_docs(ctx, {"b.md": "b content\n", "a.md": "a content\n"})
+
+    stage = chunk.ChunkStage()
+    stage.execute(ctx)
+
+    chunks_jsonl = ctx.silver_path / "chunks" / "chunks.jsonl"
+    records = [json.loads(line) for line in chunks_jsonl.read_text(encoding="utf-8").strip().split("\n")]
+    # Records sorted by path, then ascending start_line within each path
+    keys = [(r["path"], r["start_line"]) for r in records]
+    assert keys == sorted(keys)
+
+
+def test_chunk_stage_idempotent_skip_when_input_unchanged(
+    make_ctx: Callable[[], PipelineContext],
+) -> None:
+    ctx = make_ctx()
+    _make_silver_docs(ctx, {"doc.md": "some content here\n"})
+
+    stage = chunk.ChunkStage()
+    result1 = stage.execute(ctx)
+    assert result1 is ctx
+
+    chunks_jsonl = ctx.silver_path / "chunks" / "chunks.jsonl"
+    original_content = chunks_jsonl.read_bytes()
+
+    # Re-run with unchanged inputs: should skip, returning ctx unchanged
+    result2 = stage.execute(ctx)
+    assert result2 is ctx
+
+    assert chunks_jsonl.read_bytes() == original_content
+
+
+def test_chunk_stage_reprocesses_when_silver_docs_change(
+    make_ctx: Callable[[], PipelineContext],
+) -> None:
+    ctx = make_ctx()
+    _make_silver_docs(ctx, {"doc.md": "some content here\n"})
+
+    stage = chunk.ChunkStage()
+    stage.execute(ctx)
+
+    chunks_jsonl = ctx.silver_path / "chunks" / "chunks.jsonl"
+    original_content = chunks_jsonl.read_bytes()
+
+    # Modify the source docs; output must be rebuilt, not silently skipped
+    (ctx.silver_path / "docs" / "doc.md").write_text("completely different\ncontent\n", encoding="utf-8")
+    result = stage.execute(ctx)
+    assert result is ctx
+    assert chunks_jsonl.read_bytes() != original_content
+
+
+def test_chunk_stage_reprocesses_when_manifest_corrupted(
+    make_ctx: Callable[[], PipelineContext],
+) -> None:
+    ctx = make_ctx()
+    _make_silver_docs(ctx, {"doc.md": "content\n"})
+
+    stage = chunk.ChunkStage()
+    stage.execute(ctx)
+
+    chunks_jsonl = ctx.silver_path / "chunks" / "chunks.jsonl"
+    original_content = chunks_jsonl.read_bytes()
+
+    # Corrupt the manifest sha
+    manifest_json = ctx.silver_path / "chunks" / "manifest.json"
+    import json
+
+    manifest = json.loads(manifest_json.read_text(encoding="utf-8"))
+    manifest["chunks_sha256"] = "deadbeef" * 8
+    manifest_json.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+    # Re-run: should reprocess
+    result = stage.execute(ctx)
+    assert result is ctx
+    assert chunks_jsonl.read_bytes() == original_content  # content should be same
+
+    # Manifest rewritten with a valid chunks_sha256 for the current chunks
+    new_manifest = json.loads(manifest_json.read_text(encoding="utf-8"))
+    assert new_manifest["chunks_sha256"] == hashlib.sha256(chunks_jsonl.read_bytes()).hexdigest()
+
+
+def test_chunk_stage_empty_docs_dir_produces_empty_chunks(
+    make_ctx: Callable[[], PipelineContext],
+) -> None:
+    import json
+
+    ctx = make_ctx()
+    # Create empty docs dir
+    docs_dir = ctx.silver_path / "docs"
+    docs_dir.mkdir(parents=True, exist_ok=True)
+
+    stage = chunk.ChunkStage()
+    result = stage.execute(ctx)
+    assert result is ctx
+
+    chunks_jsonl = ctx.silver_path / "chunks" / "chunks.jsonl"
+    assert chunks_jsonl.is_file()
+    # Should be empty (no chunks)
+    content = chunks_jsonl.read_text(encoding="utf-8")
+    assert content == ""
+
+    manifest = json.loads((ctx.silver_path / "chunks" / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["total_chunks"] == 0
+    assert manifest["file_chunks"] == 0
+
+
+def test_chunk_stage_no_docs_dir_proceeds_gracefully(
+    make_ctx: Callable[[], PipelineContext],
+) -> None:
+    import json
+
+    ctx = make_ctx()
+    # Don't create docs dir at all
+
+    stage = chunk.ChunkStage()
+    result = stage.execute(ctx)
+    assert result is ctx
+
+    chunks_jsonl = ctx.silver_path / "chunks" / "chunks.jsonl"
+    assert chunks_jsonl.is_file()
+
+    manifest = json.loads((ctx.silver_path / "chunks" / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["total_chunks"] == 0
+
+
+def test_chunk_stage_filters_non_doc_extensions(
+    make_ctx: Callable[[], PipelineContext],
+) -> None:
+    import json
+
+    ctx = make_ctx()
+    _make_silver_docs(
+        ctx,
+        {
+            "real.md": "content\n",
+            "also.txt": "notes\n",
+            "nested/deep.md": "nested content\n",
+        },
+    )
+    # A genuinely binary file (null bytes), not just a misleading extension label
+    (ctx.silver_path / "docs" / "ignored.png").parent.mkdir(parents=True, exist_ok=True)
+    (ctx.silver_path / "docs" / "ignored.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00binary")
+
+    stage = chunk.ChunkStage()
+    stage.execute(ctx)
+
+    manifest = json.loads((ctx.silver_path / "chunks" / "manifest.json").read_text(encoding="utf-8"))
+    doc_paths = [entry["path"] for entry in manifest["documents_chunked"]]
+    assert "real.md" in doc_paths
+    assert "also.txt" in doc_paths
+    assert "nested/deep.md" in doc_paths
+    assert "ignored.png" not in doc_paths
+    assert manifest["file_chunks"] == 3
+
+
+def test_chunk_stage_single_chunk_when_text_matches_chunk_size(
+    make_ctx: Callable[[], PipelineContext],
+) -> None:
+    import json
+
+    ctx = make_ctx()
+    doc_text = "x" * chunk.DEFAULT_CHUNK_SIZE  # exactly one chunk-sized doc
+    _make_silver_docs(ctx, {"doc.md": doc_text})
+
+    stage = chunk.ChunkStage()
+    stage.execute(ctx)
+
+    chunks_jsonl = ctx.silver_path / "chunks" / "chunks.jsonl"
+    records = [json.loads(line) for line in chunks_jsonl.read_text(encoding="utf-8").strip().split("\n")]
+    assert len(records) == 1
+    assert records[0]["text"] == doc_text
+
+
+def test_chunk_stage_chunk_size_one_splits_into_characters(
+    monkeypatch: pytest.MonkeyPatch,
+    make_ctx: Callable[[], PipelineContext],
+) -> None:
+    import json
+
+    monkeypatch.setattr(chunk, "DEFAULT_CHUNK_SIZE", 1)
+    monkeypatch.setattr(chunk, "DEFAULT_CHUNK_OVERLAP", 0)
+
+    ctx = make_ctx()
+    _make_silver_docs(ctx, {"doc.md": "abc"})
+
+    stage = chunk.ChunkStage()
+    stage.execute(ctx)
+
+    chunks_jsonl = ctx.silver_path / "chunks" / "chunks.jsonl"
+    texts = [json.loads(line)["text"] for line in chunks_jsonl.read_text(encoding="utf-8").strip().split("\n")]
+    assert texts == ["a", "b", "c"]
+
+
+def test_chunk_stage_deterministic_output(
+    make_ctx: Callable[[], PipelineContext],
+) -> None:
+    ctx1 = make_ctx()
+    _make_silver_docs(ctx1, {"doc.md": "deterministic\ncontent\n" * 50})
+    stage = chunk.ChunkStage()
+    stage.execute(ctx1)
+
+    content1 = (ctx1.silver_path / "chunks" / "chunks.jsonl").read_bytes()
+
+    ctx2 = make_ctx()
+    _make_silver_docs(ctx2, {"doc.md": "deterministic\ncontent\n" * 50})
+    stage2 = chunk.ChunkStage()
+    stage2.execute(ctx2)
+
+    content2 = (ctx2.silver_path / "chunks" / "chunks.jsonl").read_bytes()
+    assert content1 == content2
