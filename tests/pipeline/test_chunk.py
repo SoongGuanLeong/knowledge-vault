@@ -254,6 +254,7 @@ def make_ctx(tmp_path: Path):
         store = base / "store"
         silver = base / "silver" / "test-source" / "1.0.0"
         bronze = base / "bronze" / "test-source" / "1.0.0"
+        gold = base / "gold" / "test-source" / "1.0.0"
         return PipelineContext(
             store=store,
             config=config,
@@ -262,6 +263,8 @@ def make_ctx(tmp_path: Path):
             commit="abc1234",
             bronze_path=bronze,
             silver_path=silver,
+            gold_path=gold,
+            chunks_path=silver / "chunks" / "chunks.jsonl",
             repo_dir=bronze / "repo",
             manifest_path=bronze / "manifest.json",
         )
