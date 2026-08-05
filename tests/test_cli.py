@@ -320,3 +320,64 @@ def test_ingest_chunks_idempotent_reingestion(run_cli, sources_dir, store_dir) -
     assert "already present" in second.stdout
     assert chunks_jsonl.read_bytes() == before
     assert chunks_jsonl.stat().st_mtime_ns == mtime_before
+
+
+# --- gold index end-to-end ---
+
+
+def test_ingest_writes_gold_index_structured(run_cli, sources_dir, store_dir) -> None:
+    result = run_cli(["ingest", "spark", "--tag", "v0.1.0", "--store", str(store_dir), "--sources", str(sources_dir)])
+    assert result.returncode == 0, result.stderr
+
+    metadata_json = store_dir / "gold" / "spark" / "0.1.0" / "index" / "metadata.json"
+    assert metadata_json.is_file()
+
+    chunks_jsonl = store_dir / "silver" / "spark" / "0.1.0" / "chunks" / "chunks.jsonl"
+    records = [json.loads(line) for line in chunks_jsonl.read_text(encoding="utf-8").splitlines() if line]
+    assert records
+
+    index = load_json(metadata_json)
+    assert index["schema_version"] == 1
+    assert index["chunks_sha256"] == hashlib.sha256(chunks_jsonl.read_bytes()).hexdigest()
+    assert index["chunk_count"] == len(records)
+    assert set(index["chunks"]) == {r["chunk_id"] for r in records}
+    for record in records:
+        entry = index["chunks"][record["chunk_id"]]
+        assert entry == {
+            "path": record["path"],
+            "start_line": record["start_line"],
+            "end_line": record["end_line"],
+            "parent_document": record["parent_document"],
+            "sha256": record["sha256"],
+        }
+
+
+def test_ingest_gold_index_deterministic_across_runs(run_cli, sources_dir, tmp_path) -> None:
+    store_a = tmp_path / "store-a"
+    store_b = tmp_path / "store-b"
+    args = ["ingest", "spark", "--tag", "v0.1.0", "--sources", str(sources_dir)]
+
+    first = run_cli(args + ["--store", str(store_a)])
+    assert first.returncode == 0, first.stderr
+    second = run_cli(args + ["--store", str(store_b)])
+    assert second.returncode == 0, second.stderr
+
+    index_a = store_a / "gold" / "spark" / "0.1.0" / "index" / "metadata.json"
+    index_b = store_b / "gold" / "spark" / "0.1.0" / "index" / "metadata.json"
+    assert index_a.read_bytes() == index_b.read_bytes()
+
+
+def test_ingest_gold_index_idempotent_reingestion(run_cli, sources_dir, store_dir) -> None:
+    args = ["ingest", "spark", "--tag", "v0.1.0", "--store", str(store_dir), "--sources", str(sources_dir)]
+    first = run_cli(args)
+    assert first.returncode == 0, first.stderr
+
+    metadata_json = store_dir / "gold" / "spark" / "0.1.0" / "index" / "metadata.json"
+    before = metadata_json.read_bytes()
+    mtime_before = metadata_json.stat().st_mtime_ns
+
+    second = run_cli(args)
+    assert second.returncode == 0, second.stderr
+    assert "already present" in second.stdout
+    assert metadata_json.read_bytes() == before
+    assert metadata_json.stat().st_mtime_ns == mtime_before

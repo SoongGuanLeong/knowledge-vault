@@ -8,7 +8,7 @@ from pathlib import Path
 
 from knowledge_vault.config import SourceConfig
 from knowledge_vault.git import resolve_commit
-from knowledge_vault.pipeline import AcquireStage, ChunkStage, PipelineContext, SilverStage
+from knowledge_vault.pipeline import AcquireStage, ChunkStage, IndexStage, PipelineContext, SilverStage
 from knowledge_vault.store import bronze_dir, gold_dir, silver_dir, version_from_tag
 
 
@@ -61,6 +61,7 @@ def _ingest_single(
     acquire_stage: AcquireStage,
     silver_stage: SilverStage,
     chunk_stage: ChunkStage,
+    index_stage: IndexStage,
 ) -> bool:
     """Ingest a single *tag* version of *config*. Returns True if created, False if skipped."""
     ctx = _build_context(config, tag, store)
@@ -71,6 +72,7 @@ def _ingest_single(
 
     silver_stage.execute(ctx)
     chunk_stage.execute(ctx)
+    index_stage.execute(ctx)
     print(f"{config.name} ingested {tag} ({ctx.commit})")
     return True
 
@@ -101,10 +103,11 @@ def ingest(config: SourceConfig, store: Path, tag_override: str | None = None) -
     acquire_stage = AcquireStage()
     silver_stage = SilverStage()
     chunk_stage = ChunkStage()
+    index_stage = IndexStage()
 
     for tag in tags:
         try:
-            created = _ingest_single(config, tag, store, acquire_stage, silver_stage, chunk_stage)
+            created = _ingest_single(config, tag, store, acquire_stage, silver_stage, chunk_stage, index_stage)
         except Exception as exc:
             report.failed.append(f"{tag}: {exc}")
             print(f"error: {config.name} at {tag}: {exc}", file=sys.stderr)
