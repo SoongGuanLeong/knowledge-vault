@@ -309,7 +309,11 @@ def test_chunk_stage_creates_output_files(make_ctx: Callable[[], PipelineContext
     assert manifest["name"] == "test-source"
     assert manifest["version"] == "1.0.0"
     assert manifest["total_chunks"] >= 2
-    assert manifest["file_chunks"] == 2
+    assert manifest["documents_chunked"] == 2
+    assert manifest["file_chunks"] == [
+        {"path": "a.md", "chunk_count": 1},
+        {"path": "b.md", "chunk_count": 1},
+    ]
     assert manifest["chunk_size"] == chunk.DEFAULT_CHUNK_SIZE
     assert manifest["chunk_overlap"] == chunk.DEFAULT_CHUNK_OVERLAP
     assert manifest["separators"] == chunk.DEFAULT_SEPARATORS
@@ -449,7 +453,8 @@ def test_chunk_stage_empty_docs_dir_produces_empty_chunks(
 
     manifest = json.loads((ctx.silver_path / "chunks" / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["total_chunks"] == 0
-    assert manifest["file_chunks"] == 0
+    assert manifest["documents_chunked"] == 0
+    assert manifest["file_chunks"] == []
 
 
 def test_chunk_stage_no_docs_dir_proceeds_gracefully(
@@ -493,12 +498,13 @@ def test_chunk_stage_filters_non_doc_extensions(
     stage.execute(ctx)
 
     manifest = json.loads((ctx.silver_path / "chunks" / "manifest.json").read_text(encoding="utf-8"))
-    doc_paths = [entry["path"] for entry in manifest["documents_chunked"]]
+    doc_paths = [entry["path"] for entry in manifest["file_chunks"]]
     assert "real.md" in doc_paths
     assert "also.txt" in doc_paths
     assert "nested/deep.md" in doc_paths
     assert "ignored.png" not in doc_paths
-    assert manifest["file_chunks"] == 3
+    assert manifest["documents_chunked"] == 3
+    assert all(entry["chunk_count"] == 1 for entry in manifest["file_chunks"])
 
 
 def test_chunk_stage_single_chunk_when_text_matches_chunk_size(

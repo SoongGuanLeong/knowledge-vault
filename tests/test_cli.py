@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -229,3 +230,93 @@ def test_ingest_silver_manifest_inventory(run_cli, docs_sources_dir, store_dir) 
     lineage = load_json(silver / "lineage.json")
     assert lineage["silver"]["version"] == "1.0.0"
     assert lineage["bronze"]["commit"]
+
+
+# --- chunking end-to-end ---
+
+
+def test_ingest_writes_chunks_structured(run_cli, sources_dir, store_dir) -> None:
+    result = run_cli(["ingest", "spark", "--tag", "v0.1.0", "--store", str(store_dir), "--sources", str(sources_dir)])
+    assert result.returncode == 0, result.stderr
+
+    chunks_dir = store_dir / "silver" / "spark" / "0.1.0" / "chunks"
+    assert (chunks_dir / "chunks.jsonl").is_file()
+    assert (chunks_dir / "manifest.json").is_file()
+
+    lines = (chunks_dir / "chunks.jsonl").read_text(encoding="utf-8").splitlines()
+    records = [json.loads(line) for line in lines if line]
+    assert records
+
+    expected_fields = {
+        "chunk_id",
+        "source",
+        "version",
+        "path",
+        "text",
+        "start_line",
+        "end_line",
+        "sha256",
+        "parent_document",
+    }
+    for record in records:
+        assert set(record) == expected_fields
+        assert record["source"] == "spark"
+        assert record["version"] == "0.1.0"
+        assert record["chunk_id"]
+        assert record["text"]
+        assert record["start_line"] >= 1
+        assert record["end_line"] >= record["start_line"]
+
+    keys = [(r["path"], r["start_line"]) for r in records]
+    assert keys == sorted(keys)
+
+    manifest = load_json(chunks_dir / "manifest.json")
+    assert manifest["name"] == "spark"
+    assert manifest["version"] == "0.1.0"
+    assert manifest["bronze"] == {
+        "name": "spark",
+        "version": "0.1.0",
+        "commit": load_json(store_dir / "bronze" / "spark" / "0.1.0" / "manifest.json")["commit"],
+    }
+    assert manifest["total_chunks"] == len(records)
+    assert manifest["documents_chunked"] == 2
+    assert manifest["chunk_size"] == 1000
+    assert manifest["chunk_overlap"] == 150
+    assert manifest["separators"] == ["\n\n", "\n", " ", ""]
+    assert manifest["file_chunks"] == [
+        {"path": "intro.md", "chunk_count": 1},
+        {"path": "sql.md", "chunk_count": 1},
+    ]
+    assert manifest["generated_at"]
+    assert manifest["chunks_sha256"] == hashlib.sha256((chunks_dir / "chunks.jsonl").read_bytes()).hexdigest()
+
+
+def test_ingest_chunks_deterministic_across_runs(run_cli, sources_dir, tmp_path) -> None:
+    store_a = tmp_path / "store-a"
+    store_b = tmp_path / "store-b"
+    args = ["ingest", "spark", "--tag", "v0.1.0", "--sources", str(sources_dir)]
+
+    first = run_cli(args + ["--store", str(store_a)])
+    assert first.returncode == 0, first.stderr
+    second = run_cli(args + ["--store", str(store_b)])
+    assert second.returncode == 0, second.stderr
+
+    chunks_a = store_a / "silver" / "spark" / "0.1.0" / "chunks" / "chunks.jsonl"
+    chunks_b = store_b / "silver" / "spark" / "0.1.0" / "chunks" / "chunks.jsonl"
+    assert chunks_a.read_bytes() == chunks_b.read_bytes()
+
+
+def test_ingest_chunks_idempotent_reingestion(run_cli, sources_dir, store_dir) -> None:
+    args = ["ingest", "spark", "--tag", "v0.1.0", "--store", str(store_dir), "--sources", str(sources_dir)]
+    first = run_cli(args)
+    assert first.returncode == 0, first.stderr
+
+    chunks_jsonl = store_dir / "silver" / "spark" / "0.1.0" / "chunks" / "chunks.jsonl"
+    before = chunks_jsonl.read_bytes()
+    mtime_before = chunks_jsonl.stat().st_mtime_ns
+
+    second = run_cli(args)
+    assert second.returncode == 0, second.stderr
+    assert "already present" in second.stdout
+    assert chunks_jsonl.read_bytes() == before
+    assert chunks_jsonl.stat().st_mtime_ns == mtime_before

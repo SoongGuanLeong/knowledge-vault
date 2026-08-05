@@ -224,7 +224,7 @@ class ChunkStage:
             documents.sort(key=lambda item: item[0])
 
         all_records: list[ChunkRecord] = []
-        documents_chunked: list[dict[str, str]] = []
+        file_chunks: list[dict[str, str | int]] = []
 
         for rel_path, doc_file in documents:
             text = doc_file.read_text(encoding="utf-8")
@@ -233,7 +233,7 @@ class ChunkStage:
             for chunk_text in chunks:
                 record = _build_chunk_record(chunk_text, rel_path, ctx)
                 all_records.append(record)
-            documents_chunked.append({"path": rel_path})
+            file_chunks.append({"path": rel_path, "chunk_count": len(chunks)})
 
         all_records.sort(key=lambda r: (r["path"], r["start_line"]))
 
@@ -254,19 +254,16 @@ class ChunkStage:
                 "version": ctx.version,
                 "bronze": {"name": ctx.config.name, "version": ctx.version, "commit": ctx.commit},
                 "total_chunks": len(all_records),
-                "documents_chunked": documents_chunked,
-                "file_chunks": len(documents_chunked),
+                "documents_chunked": len(file_chunks),
                 "chunk_size": DEFAULT_CHUNK_SIZE,
                 "chunk_overlap": DEFAULT_CHUNK_OVERLAP,
                 "separators": DEFAULT_SEPARATORS,
                 "silver_fingerprint": _silver_fingerprint(ctx),
                 "chunks_sha256": chunks_sha256,
+                "file_chunks": file_chunks,
                 "generated_at": _now_iso(),
             },
         )
 
-        print(
-            f"{ctx.config.name} chunked v{ctx.version}: "
-            f"{len(all_records)} chunks from {len(documents_chunked)} documents"
-        )
+        print(f"{ctx.config.name} chunked v{ctx.version}: {len(all_records)} chunks from {len(file_chunks)} documents")
         return ctx
