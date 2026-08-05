@@ -43,3 +43,18 @@ def test_build_context_chunks_path_matches_chunk_stage_output(tmp_path: Path, re
 
     assert ctx.chunks_path == ctx.silver_path / "chunks" / "chunks.jsonl"
     assert ctx.chunks_path == silver_dir(store, "spark", "0.1.0") / "chunks" / "chunks.jsonl"
+
+
+def test_build_context_gold_path_is_separate_from_silver(tmp_path: Path, repo_url: str) -> None:
+    config = SourceConfig(
+        name="spark",
+        repo=repo_url,
+        docs_path="docs",
+        desired_tags=["v0.1.0"],
+    )
+    store = tmp_path / "store"
+
+    ctx = _build_context(config, "v0.1.0", store)
+
+    assert ctx.gold_path != ctx.silver_path
+    assert ctx.gold_path.parent.parent == store / "gold"
