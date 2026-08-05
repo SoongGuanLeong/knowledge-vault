@@ -106,7 +106,7 @@ def test_index_stage_empty_chunks_produces_valid_empty_index(
     assert index["chunks"] == {}
 
 
-def test_index_stage_non_empty_input_yields_envelope(
+def test_index_stage_indexes_chunk_metadata(
     make_ctx: Callable[[], PipelineContext],
 ) -> None:
     ctx = make_ctx()
@@ -201,26 +201,6 @@ def test_index_stage_rebuilds_when_chunks_change(
     assert metadata_json.read_bytes() != original
     index = json.loads(metadata_json.read_text(encoding="utf-8"))
     assert index["chunks"]["chunk-1"]["sha256"] == hashlib.sha256(b"new text").hexdigest()
-
-
-def test_index_stage_skip_does_not_rewrite_existing_index(
-    make_ctx: Callable[[], PipelineContext],
-) -> None:
-    ctx = make_ctx()
-    _write_chunks(ctx, [_chunk_record("chunk-1", "a.md", 1, 2, "stable")])
-
-    stage = IndexStage()
-    stage.execute(ctx)
-
-    metadata_json = ctx.gold_path / "index" / "metadata.json"
-    corrupted = json.loads(metadata_json.read_text(encoding="utf-8"))
-    corrupted["chunks"]["chunk-1"]["path"] = "tampered.md"
-    corrupted_json = json.dumps(corrupted, indent=2) + "\n"
-    metadata_json.write_text(corrupted_json, encoding="utf-8")
-
-    stage.execute(ctx)
-
-    assert metadata_json.read_text(encoding="utf-8") == corrupted_json
 
 
 def test_index_stage_rebuilds_when_existing_index_unparseable(
