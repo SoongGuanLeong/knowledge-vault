@@ -4,16 +4,10 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from pathlib import Path
-from typing import Any
 
 from knowledge_vault.git import acquire
+from knowledge_vault.pipeline._io import write_json
 from knowledge_vault.pipeline.context import PipelineContext
-
-
-def _write_json(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
 def _now_iso() -> str:
@@ -51,7 +45,7 @@ class AcquireStage:
         ctx.bronze_path.mkdir(parents=True, exist_ok=True)
         acquire(ctx.config.repo, ctx.tag, ctx.commit, repo_dir)
 
-        _write_json(
+        write_json(
             manifest_path,
             {
                 "name": ctx.config.name,

@@ -3,21 +3,15 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 from knowledge_vault.config import SourceError
+from knowledge_vault.pipeline._io import write_json
 from knowledge_vault.pipeline.context import PipelineContext
 
 DOC_EXTENSIONS: list[str] = [".md", ".mdx", ".rst", ".txt", ".adoc", ".html"]
-
-
-def _write_json(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
 def _now_iso() -> str:
@@ -109,7 +103,7 @@ class SilverStage:
         for rel in skipped_files:
             skipped.append({"source": str(rel), "reason": "binary_or_non_doc"})
 
-        _write_json(
+        write_json(
             ctx.silver_path / "manifest.json",
             {
                 "name": ctx.config.name,
@@ -126,7 +120,7 @@ class SilverStage:
                 "extracted_at": _now_iso(),
             },
         )
-        _write_json(
+        write_json(
             ctx.silver_path / "lineage.json",
             {
                 "silver": {"name": ctx.config.name, "version": ctx.version},
