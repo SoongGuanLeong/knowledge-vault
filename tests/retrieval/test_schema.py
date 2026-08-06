@@ -7,6 +7,7 @@ from collections.abc import Generator
 from pathlib import Path
 
 import pytest
+from conftest import fts5_available
 
 from knowledge_vault.retrieval import (
     SCHEMA_VERSION,
@@ -17,17 +18,7 @@ from knowledge_vault.retrieval import (
     knowledge_db_path,
 )
 
-
-def _fts5_available() -> bool:
-    try:
-        with sqlite3.connect(":memory:") as conn:
-            conn.execute("CREATE VIRTUAL TABLE probe USING fts5(text)")
-    except sqlite3.OperationalError:
-        return False
-    return True
-
-
-if not _fts5_available():
+if not fts5_available():
     pytest.skip("FTS5 not available in this SQLite build", allow_module_level=True)
 
 

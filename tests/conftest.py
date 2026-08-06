@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 import subprocess
 import sys
 from collections.abc import Callable
@@ -11,6 +12,16 @@ from pathlib import Path
 import pytest
 
 from knowledge_vault.store import init_store
+
+
+def fts5_available() -> bool:
+    """Return True if this SQLite build supports FTS5 virtual tables."""
+    try:
+        with sqlite3.connect(":memory:") as conn:
+            conn.execute("CREATE VIRTUAL TABLE probe USING fts5(text)")
+    except sqlite3.OperationalError:
+        return False
+    return True
 
 
 def run_git(cwd: Path, *args: str) -> None:
