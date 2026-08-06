@@ -71,6 +71,20 @@ def test_parse_chunks_document_sha256_joins_ordered_texts_with_null_separator() 
     assert doc.sha256 == hashlib.sha256(b"alpha\0beta").hexdigest()
 
 
+def test_parse_chunks_sha256_independent_per_document() -> None:
+    records = [
+        _chunk(chunk_id="c1", path="a.md", text="alpha"),
+        _chunk(chunk_id="c2", path="b.md", text="beta"),
+    ]
+    docs = parse_chunks(_jsonl(records))
+
+    expected = {
+        "a.md": hashlib.sha256(b"alpha").hexdigest(),
+        "b.md": hashlib.sha256(b"beta").hexdigest(),
+    }
+    assert {d.path: d.sha256 for d in docs} == expected
+
+
 def test_parse_chunks_documents_ordered_by_first_appearance_chunks_in_file_order() -> None:
     records = [
         _chunk(chunk_id="c1", path="b.md", text="one"),
