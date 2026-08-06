@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Generator
 from pathlib import Path
 
 import pytest
@@ -31,7 +32,7 @@ if not _fts5_available():
 
 
 @pytest.fixture
-def db(tmp_path: Path) -> sqlite3.Connection:
+def db(tmp_path: Path) -> Generator[sqlite3.Connection, None, None]:
     """An open connection to a schema-created knowledge.db."""
     conn = connect_db(tmp_path / "knowledge.db")
     create_schema(conn)
