@@ -166,6 +166,20 @@ def test_chunk_delete_cascades_from_document(db: sqlite3.Connection) -> None:
     assert count is not None and count[0] == 0
 
 
+def test_chunk_uuid_unique_per_document_not_global(db: sqlite3.Connection) -> None:
+    insert_doc = "INSERT INTO documents (document_id, source, version, path, sha256) VALUES (?, ?, ?, ?, ?)"
+    insert_chunk = (
+        "INSERT INTO chunks (chunk_id, chunk_uuid, document_id, text, start_line, end_line, sha256) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)"
+    )
+    db.execute(insert_doc, (1, "spark", "0.1.0", "intro.md", "aaa"))
+    db.execute(insert_doc, (2, "spark", "0.2.0", "intro.md", "bbb"))
+    db.execute(insert_chunk, (1, "uuid-1", 1, "text", 1, 2, "ccc"))
+    db.execute(insert_chunk, (2, "uuid-1", 2, "text", 1, 2, "ddd"))
+    with pytest.raises(sqlite3.IntegrityError):
+        db.execute(insert_chunk, (3, "uuid-1", 1, "text", 1, 2, "eee"))
+
+
 def test_fts_chunks_is_external_content_table(db: sqlite3.Connection) -> None:
     ddl = db.execute("SELECT sql FROM sqlite_master WHERE name = 'fts_chunks'").fetchone()
     assert ddl is not None

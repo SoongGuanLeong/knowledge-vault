@@ -10,7 +10,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA_DDL: tuple[str, ...] = (
     "CREATE TABLE IF NOT EXISTS metadata (  id INTEGER PRIMARY KEY CHECK (id = 1),  schema_version INTEGER NOT NULL)",
@@ -32,14 +32,15 @@ SCHEMA_DDL: tuple[str, ...] = (
     ")",
     "CREATE TABLE IF NOT EXISTS chunks ("
     "  chunk_id INTEGER PRIMARY KEY,"
-    "  chunk_uuid TEXT NOT NULL UNIQUE,"
+    "  chunk_uuid TEXT NOT NULL,"
     "  document_id INTEGER NOT NULL,"
     "  text TEXT NOT NULL,"
     "  start_line INTEGER,"
     "  end_line INTEGER,"
     "  sha256 TEXT NOT NULL,"
     "  FOREIGN KEY (document_id) REFERENCES documents (document_id)"
-    "    ON DELETE CASCADE"
+    "    ON DELETE CASCADE,"
+    "  UNIQUE (document_id, chunk_uuid)"
     ")",
     "CREATE VIRTUAL TABLE IF NOT EXISTS fts_chunks USING fts5(  text,  content=chunks,  content_rowid=chunk_id)",
 )
