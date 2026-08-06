@@ -10,7 +10,7 @@ A reproducible knowledge ingestion foundation for LLM-powered personal knowledge
 
 - **`kv init`** — create a new knowledge store
 - **`kv discover <name>`** — list available versions (tags) of a configured source
-- **`kv ingest <name>`** — acquire a pinned repository snapshot into bronze, extract docs into silver, write manifests
+- **`kv ingest <name>`** — acquire a pinned repository snapshot into bronze, extract docs into silver, build a gold index, write manifests
 - **`kv list`** — show what's been ingested
 - **`kv status [--deep]`** — check store for drift against declared source configs
 - **`kv doctor`** — pre-flight environment and source config checks
@@ -35,7 +35,7 @@ The store uses a medallion layout:
 
 - **bronze** — full repository snapshot at a pinned commit, with a manifest recording provenance
 - **silver** — byte-identical copy of the configured `docs_path` from bronze, with a manifest and lineage record
-- **gold** — derived indexes (not yet implemented)
+- **gold** — deterministic index of the silver chunks (`index/metadata.json`), derived from the chunks artifact; byte-identical for identical input and idempotent on re-ingest
 
 ## Getting started
 
@@ -81,8 +81,9 @@ src/knowledge_vault/     # Python package
   cli.py                 # argparse CLI (init, discover, ingest, list, status, doctor)
   config.py              # Source config loading from YAML
   git.py                 # Git wrappers (tag discovery, clone, checkout)
-  ingest.py              # Orchestration (bronze + silver pipeline)
+  ingest.py              # Orchestration (bronze + silver + gold pipeline)
   store.py               # Store layout helpers (init, metadata, medallion dirs)
+  pipeline/              # Stage-based pipeline (acquire, chunk, silver, index)
 tests/                   # CLI-seam tests (fully offline, fixture git repos)
 sources/                 # Per-source YAML config files
 ```
