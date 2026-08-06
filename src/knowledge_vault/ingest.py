@@ -8,7 +8,8 @@ from pathlib import Path
 
 from knowledge_vault.config import SourceConfig
 from knowledge_vault.git import resolve_commit
-from knowledge_vault.pipeline import AcquireStage, ChunkStage, IndexStage, PipelineContext, SilverStage
+from knowledge_vault.pipeline import AcquireStage, ChunkStage, PipelineContext, SilverStage
+from knowledge_vault.retrieval.indexing import IndexStage
 from knowledge_vault.store import bronze_dir, gold_dir, silver_dir, version_from_tag
 
 

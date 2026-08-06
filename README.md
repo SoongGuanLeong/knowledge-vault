@@ -35,7 +35,7 @@ The store uses a medallion layout:
 
 - **bronze** — full repository snapshot at a pinned commit, with a manifest recording provenance
 - **silver** — byte-identical copy of the configured `docs_path` from bronze, with a manifest and lineage record
-- **gold** — deterministic index of the silver chunks (`index/metadata.json`), derived from the chunks artifact; byte-identical for identical input and idempotent on re-ingest
+- **gold** — the store-level `knowledge.db` (SQLite/FTS5) built from the silver chunks artifact; deterministic contents for identical input
 
 ## Getting started
 
