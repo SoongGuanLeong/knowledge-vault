@@ -377,12 +377,40 @@ def test_chunk_stage_idempotent_skip_when_input_unchanged(
 
     chunks_jsonl = ctx.silver_path / "chunks" / "chunks.jsonl"
     original_content = chunks_jsonl.read_bytes()
+    original_mtime = chunks_jsonl.stat().st_mtime_ns
 
     # Re-run with unchanged inputs: should skip, returning ctx unchanged
     result2 = stage.execute(ctx)
     assert result2 is ctx
 
+    # True skip: no rewrite, so bytes and mtime are both untouched.
+    # A buggy "always regenerate" implementation fails the mtime check.
     assert chunks_jsonl.read_bytes() == original_content
+    assert chunks_jsonl.stat().st_mtime_ns == original_mtime
+
+
+def test_chunk_stage_skips_before_processing(
+    monkeypatch: pytest.MonkeyPatch,
+    make_ctx: Callable[[], PipelineContext],
+) -> None:
+    ctx = make_ctx()
+    _make_silver_docs(ctx, {"doc.md": "some content here\n"})
+
+    stage = chunk.ChunkStage()
+    stage.execute(ctx)
+
+    # Prove the early-return path: on re-run the chunking work must never start.
+    calls = 0
+    real_split = chunk.recursive_split
+
+    def counting_split(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return real_split(*args, **kwargs)
+
+    monkeypatch.setattr(chunk, "recursive_split", counting_split)
+    stage.execute(ctx)
+    assert calls == 0
 
 
 def test_chunk_stage_reprocesses_when_silver_docs_change(
