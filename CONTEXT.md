@@ -37,6 +37,15 @@ Single-context vocabulary for this repo. Terms are the shared language used acro
 - **knowledge-vault** — this code repo (the Python application).
 - **engineering-vault** — future Obsidian vault; the human-curated knowledge layer.
 
+## Retrieval
+
+- **retrieval** — the search API layer (`src/knowledge_vault/retrieval/`): engine-agnostic surface over the gold `knowledge.db`.
+- **SearchBackend** — `typing.Protocol` with a single sync method `search(query, *, k=10, filters=None) -> list[SearchResult]`. Never exposes connection/cursor; SQL owned by the backend.
+- **SearchResult** — frozen dataclass: `chunk_uuid, text, source, version, path, start_line, end_line, score`. `score` higher = more relevant (backend normalizes raw bm25). No rank/snippet/document_id.
+- **SearchFilters** — frozen dataclass `source: str | None, version: str | None`. None = all; unknown filter value = empty result (CLI validates typos).
+- **indexed_sources** — build registry inside `knowledge.db`: `(source, version)` PK, `chunks_sha256`, document/chunk counts. Provenance lives in the DB, no gold-side manifest.
+- **chunk_uuid** — deterministic UUID5 identity for a chunk; the external id returned by SearchResult (not the SQLite rowid alias).
+
 ## CLI operations
 
 - **kv init** — creates the medallion store structure and ``metadata.json``.
