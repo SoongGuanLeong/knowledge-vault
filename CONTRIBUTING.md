@@ -23,6 +23,8 @@
 | 3 | ruff check | Linting and code quality |
 | 4 | basedpyright | Static type checking |
 | 5 | pytest | Functional correctness |
-| 6 | pip-audit | Dependency vulnerability scan |
+| 6 | bandit | Security scan |
+| 7 | semgrep | Deterministic SAST scan |
+| 8 | pip-audit | Dependency vulnerability scan |
 
 Pre-commit hooks cover gitleaks, ruff format, and ruff check for fast local feedback.
