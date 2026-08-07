@@ -43,7 +43,8 @@ Single-context vocabulary for this repo. Terms are the shared language used acro
 - **SearchBackend** — `typing.Protocol` with a single sync method `search(query, *, k=10, filters=None) -> list[SearchResult]`. Never exposes connection/cursor; SQL owned by the backend.
 - **SearchResult** — frozen dataclass: `chunk_uuid, text, source, version, path, start_line, end_line, score`. `score` higher = more relevant (backend normalizes raw bm25). No rank/snippet/document_id.
 - **SearchFilters** — frozen dataclass `source: str | None, version: str | None`. None = all; unknown filter value = empty result (CLI validates typos).
-- **indexed_sources** — build registry inside `knowledge.db`: `(source, version)` PK, `chunks_sha256`, document/chunk counts. Provenance lives in the DB, no gold-side manifest.
+- **slice** — the `(source, version)` unit of identity and replacement in the gold index. A slice is the set of documents and chunks indexed for one source at one version; it is the thing that is up-to-date checked (via `chunks_sha256`), atomically replaced in place when its chunks change, and isolated from other slices during replacement (delete cascades only that slice's chunks, FTS is rebuilt, the `indexed_sources` row is updated — all within one transaction). Stale-by-default: only the changed slice is rewritten, leaving other slices untouched.
+- **indexed_sources** — build registry inside `knowledge.db`: `(source, version)` PK, `chunks_sha256`, document/chunk counts. Provenance lives in the DB, no gold-side manifest. Each row is the registry record for one **slice**.
 - **chunk_uuid** — deterministic UUID5 identity for a chunk; the external id returned by SearchResult (not the SQLite rowid alias).
 
 ## CLI operations
