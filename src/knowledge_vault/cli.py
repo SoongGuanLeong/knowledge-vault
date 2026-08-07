@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sqlite3
 import sys
 from pathlib import Path
 
@@ -24,11 +23,8 @@ from knowledge_vault.retrieval import (
     SearchBackendError,
     SearchFilters,
     SQLiteFTSBackend,
-    check_schema,
-    connect_db,
     knowledge_db_path,
 )
-from knowledge_vault.retrieval.schema import SchemaError
 from knowledge_vault.snippet import extract_terms, make_snippet
 from knowledge_vault.store import (
     StoreError,
@@ -200,10 +196,11 @@ def _cmd_search(args: argparse.Namespace) -> int:
     """Run a full-text search over the store's gold index.
 
     Validates ``--source``/``--version`` against the gold index's
-    ``indexed_sources`` registry (unknown values are user typos -> exit 2),
-    searches with the SQLiteFTSBackend, and renders human-readable result
-    blocks. Exit codes per the CLI contract (#27): 0 = hits found, 1 = no
-    results, 2 = error.
+    ``indexed_sources`` registry through the retrieval backend: unknown values
+    are user typos -> exit 2, the backend owns all SQLite/schema knowledge, and
+    the CLI holds neither a connection nor schema-check helpers. Searches with
+    :class:`SQLiteFTSBackend` and renders human-readable result blocks. Exit
+    codes per the CLI contract (#27): 0 = hits found, 1 = no results, 2 = error.
     """
     store = Path(args.store) if args.store else Path(os.environ.get("KV_STORE", str(default_store())))
     db_path = knowledge_db_path(store)
@@ -218,19 +215,20 @@ def _cmd_search(args: argparse.Namespace) -> int:
 
     filters = SearchFilters(source=args.source, version=args.version)
     try:
-        if filters.source is not None or filters.version is not None:
-            sources, versions = _indexed_sources_and_versions(db_path)
-            for label, value, known in (
-                ("source", filters.source, sources),
-                ("version", filters.version, versions),
-            ):
-                if value is not None and value not in known:
-                    print(f"error: unknown {label} '{value}'", file=sys.stderr)
-                    return 2
-
         with SQLiteFTSBackend(db_path) as backend:
+            if filters.source is not None or filters.version is not None:
+                indexed = backend.indexed_slices()
+                known_sources = set(indexed.sources)
+                known_versions = set(indexed.versions)
+                for label, value, known in (
+                    ("source", filters.source, known_sources),
+                    ("version", filters.version, known_versions),
+                ):
+                    if value is not None and value not in known:
+                        print(f"error: unknown {label} '{value}'", file=sys.stderr)
+                        return 2
             results = backend.search(args.query, k=args.limit, filters=filters)
-    except (SearchBackendError, SchemaError, sqlite3.DatabaseError) as exc:
+    except SearchBackendError as exc:
         print(f"error: search failed: {exc}", file=sys.stderr)
         return 2
     except ValueError as exc:
@@ -249,24 +247,6 @@ def _cmd_search(args: argparse.Namespace) -> int:
         if rank < len(results):
             print()
     return 0
-
-
-def _indexed_sources_and_versions(db_path: Path) -> tuple[set[str], set[str]]:
-    """The (sources, versions) pairs registered in the gold index.
-
-    Read from ``indexed_sources``; a missing/incompatible index surfaces as a
-    search error via the raised :class:`SchemaError`/``sqlite3.DatabaseError``.
-    """
-    conn = connect_db(db_path)
-    try:
-        check_schema(conn)
-        rows = conn.execute("SELECT DISTINCT source FROM indexed_sources").fetchall()
-        sources = {row[0] for row in rows}
-        rows = conn.execute("SELECT DISTINCT version FROM indexed_sources").fetchall()
-        versions = {row[0] for row in rows}
-    finally:
-        conn.close()
-    return sources, versions
 
 
 def _cmd_doctor(args: argparse.Namespace) -> int:
