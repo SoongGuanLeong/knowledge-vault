@@ -150,23 +150,3 @@ def silver_dir(store: Path, name: str, version: str) -> Path:
         ``<store>/silver/<name>/<version>``.
     """
     return store / "silver" / name / version
-
-
-def gold_dir(store: Path, name: str, version: str) -> Path:
-    """The gold directory for *name* at *version*.
-
-    Parameters
-    ----------
-    store : Path
-        Knowledge-store root.
-    name : str
-        Source name.
-    version : str
-        Version key.
-
-    Returns
-    -------
-    Path
-        ``<store>/gold/<name>/<version>``.
-    """
-    return store / "gold" / name / version

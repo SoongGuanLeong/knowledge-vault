@@ -10,7 +10,7 @@ from knowledge_vault.config import SourceConfig
 from knowledge_vault.git import resolve_commit
 from knowledge_vault.pipeline import AcquireStage, ChunkStage, PipelineContext, SilverStage
 from knowledge_vault.retrieval.indexing import IndexStage
-from knowledge_vault.store import bronze_dir, gold_dir, silver_dir, version_from_tag
+from knowledge_vault.store import bronze_dir, silver_dir, version_from_tag
 
 
 @dataclass
@@ -48,7 +48,6 @@ def _build_context(config: SourceConfig, tag: str, store: Path) -> PipelineConte
         commit=commit,
         bronze_path=b_dir,
         silver_path=silver_dir(store, config.name, version),
-        gold_path=gold_dir(store, config.name, version),
         chunks_path=silver_dir(store, config.name, version) / "chunks" / "chunks.jsonl",
         repo_dir=b_dir / "repo",
         manifest_path=b_dir / "manifest.json",

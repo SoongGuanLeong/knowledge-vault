@@ -28,8 +28,6 @@ class PipelineContext:
         Computed bronze directory for this source+version.
     silver_path : Path
         Computed silver directory for this source+version.
-    gold_path : Path
-        Computed gold directory for this source+version.
     chunks_path : Path
         Computed chunks.jsonl artifact path produced by ChunkStage.
     repo_dir : Path
@@ -45,7 +43,6 @@ class PipelineContext:
     commit: str
     bronze_path: Path
     silver_path: Path
-    gold_path: Path
     chunks_path: Path
     repo_dir: Path
     manifest_path: Path

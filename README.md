@@ -83,7 +83,7 @@ src/knowledge_vault/     # Python package
   git.py                 # Git wrappers (tag discovery, clone, checkout)
   ingest.py              # Orchestration (bronze + silver + gold pipeline)
   store.py               # Store layout helpers (init, metadata, medallion dirs)
-  pipeline/              # Stage-based pipeline (acquire, chunk, silver, index)
+  pipeline/              # Stage-based pipeline (acquire, chunk, silver)
 tests/                   # CLI-seam tests (fully offline, fixture git repos)
 sources/                 # Per-source YAML config files
 ```

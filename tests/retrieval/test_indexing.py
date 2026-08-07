@@ -72,7 +72,6 @@ def make_ctx(tmp_path: Path) -> Callable[..., PipelineContext]:
         store = store if store is not None else base / "store"
         silver = base / "silver" / "test-source" / version
         bronze = base / "bronze" / "test-source" / version
-        gold = base / "gold" / "test-source" / version
         return PipelineContext(
             store=store,
             config=config,
@@ -81,7 +80,6 @@ def make_ctx(tmp_path: Path) -> Callable[..., PipelineContext]:
             commit="abc1234",
             bronze_path=bronze,
             silver_path=silver,
-            gold_path=gold,
             chunks_path=silver / "chunks" / "chunks.jsonl",
             repo_dir=bronze / "repo",
             manifest_path=bronze / "manifest.json",
