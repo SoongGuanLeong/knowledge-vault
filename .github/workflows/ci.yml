@@ -49,8 +49,8 @@ jobs:
       - name: basedpyright (types)
         run: uv run basedpyright
 
-      - name: Pytest
-        run: uv run pytest
+      - name: Pytest (with coverage gate)
+        run: make coverage
 
       - name: Bandit (security scan)
         run: uv run bandit -r src/ -c pyproject.toml

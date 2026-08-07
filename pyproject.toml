@@ -43,6 +43,8 @@ typeCheckingMode = "strict"
 reportMissingImports = false
 
 [tool.coverage.run]
+source = ["knowledge_vault"]
+parallel = true
 omit = [
     "src/knowledge_vault/__main__.py",
 ]
@@ -52,9 +54,6 @@ testpaths = ["tests"]
 addopts = [
     "-ra",
     "--strict-markers",
-    "--cov=knowledge_vault",
-    "--cov-report=term-missing",
-    "--cov-fail-under=56",
 ]
 
 [dependency-groups]

@@ -13,6 +13,8 @@ import pytest
 
 from knowledge_vault.store import init_store
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
 
 def fts5_available() -> bool:
     """Return True if this SQLite build supports FTS5 virtual tables."""
@@ -178,8 +180,10 @@ def docs_sources_dir(tmp_path: Path, docs_repo_url: str) -> Path:
 
 
 @pytest.fixture
-def run_cli() -> Callable[..., subprocess.CompletedProcess[str]]:
+def run_cli(pytestconfig: pytest.Config) -> Callable[..., subprocess.CompletedProcess[str]]:
     """Run the kv CLI as a subprocess against a clean environment."""
+
+    trace_subprocesses = bool(pytestconfig.getoption("cov_source"))
 
     def _run(
         args: list[str],
@@ -190,8 +194,12 @@ def run_cli() -> Callable[..., subprocess.CompletedProcess[str]]:
         full_env = dict(os.environ)
         full_env.pop("KV_STORE", None)
         full_env.pop("KV_SOURCES", None)
+        full_env.pop("COVERAGE_PROCESS_START", None)
         if env:
             full_env.update(env)
+        if trace_subprocesses:
+            full_env["COVERAGE_PROCESS_START"] = str(REPO_ROOT / "pyproject.toml")
+            full_env["PYTHONPATH"] = str(REPO_ROOT) + os.pathsep + full_env.get("PYTHONPATH", "")
         return subprocess.run(
             [sys.executable, "-m", "knowledge_vault", *args],
             capture_output=True,

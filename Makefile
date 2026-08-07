@@ -1,4 +1,4 @@
-.PHONY: help lint format typecheck test audit gitleaks semgrep check clean
+.PHONY: help lint format typecheck test coverage audit gitleaks semgrep check clean
 
 help: ## Show this help.
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -14,6 +14,11 @@ typecheck: ## Run basedpyright.
 
 test: ## Run the test suite.
 	uv run pytest
+
+coverage: ## Run tests with subprocess-aware coverage and enforce coverage gates.
+	uv run pytest --cov=knowledge_vault --cov-report=term-missing
+	uv run coverage report --fail-under=85
+	uv run coverage report --include='*/cli.py' --fail-under=80
 
 # Ignored pip-audit advisories:
 # PYSEC-2026-3481/3482/3483 in mcp==1.23.3 — pinned exactly by semgrep (its optional MCP-server feature);

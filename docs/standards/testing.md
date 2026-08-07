@@ -5,7 +5,7 @@ These standards were written on June 2, 2026 using Context7. Verify currency bef
 ## Coverage
 - Every non-trivial function must have tests.
 - Must include failure paths.
-- Minimum 80% line coverage for new code (enforce via `pytest-cov`).
+- Minimum 80% line coverage for new code (enforced via the `make coverage` gate).
 
 ## Test Types
 - **Unit**: isolated with mocked dependencies (`pytest-mock`).
