@@ -219,10 +219,12 @@ def test_index_stage_skips_when_chunks_sha_matches(
     stage.execute(ctx)
 
     metadata_json = ctx.gold_path / "index" / "metadata.json"
+    before = metadata_json.read_bytes()
     os.utime(metadata_json, (1000, 1000))
 
     stage.execute(ctx)
 
+    assert metadata_json.read_bytes() == before
     assert os.path.getmtime(metadata_json) == 1000
 
 
@@ -244,6 +246,25 @@ def test_index_stage_rebuilds_when_chunks_change(
     assert metadata_json.read_bytes() != original
     index = json.loads(metadata_json.read_text(encoding="utf-8"))
     assert index["chunks"]["chunk-1"]["sha256"] == hashlib.sha256(b"new text").hexdigest()
+
+
+def test_index_stage_does_not_require_silver_docs(
+    make_ctx: Callable[[], PipelineContext],
+) -> None:
+    ctx = make_ctx()
+
+    _write_chunks(
+        ctx,
+        [_chunk_record(chunk_id="chunk-1", path="a.md", start_line=1, end_line=2, text="content")],
+    )
+
+    IndexStage().execute(ctx)
+
+    metadata_json = ctx.gold_path / "index" / "metadata.json"
+    assert metadata_json.is_file()
+    index = json.loads(metadata_json.read_text(encoding="utf-8"))
+    assert index["chunk_count"] == 1
+    assert index["chunks"]["chunk-1"]["path"] == "a.md"
 
 
 def test_index_stage_rebuilds_when_existing_index_unparseable(
