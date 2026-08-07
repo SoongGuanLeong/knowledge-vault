@@ -318,8 +318,10 @@ def test_search_ties_broken_deterministically(relevance_store: Path) -> None:
 
 def test_open_on_missing_db_raises_search_backend_error(tmp_path: Path) -> None:
     backend = SQLiteFTSBackend(tmp_path / "does-not-exist" / "knowledge.db")
-    with pytest.raises(SearchBackendError):
+    with pytest.raises(SearchBackendError) as excinfo:
         backend.open()
+
+    assert excinfo.value.__cause__ is not None
 
 
 def test_open_on_incompatible_schema_raises_search_backend_error(tmp_path: Path) -> None:
