@@ -6,8 +6,13 @@ schema module shared by the IndexStage (write) and backend (read).
 
 from __future__ import annotations
 
-from knowledge_vault.retrieval.errors import SearchBackendError
-from knowledge_vault.retrieval.models import SearchFilters, SearchResult
+from knowledge_vault.retrieval.errors import IndexedSlicesError, SearchBackendError
+from knowledge_vault.retrieval.models import (
+    IndexedSlice,
+    IndexedSlices,
+    SearchFilters,
+    SearchResult,
+)
 from knowledge_vault.retrieval.protocol import SearchBackend
 from knowledge_vault.retrieval.rows import (
     CHUNK_SEPARATOR,
@@ -30,6 +35,9 @@ __all__ = [
     "CHUNK_SEPARATOR",
     "ChunkRow",
     "DocumentRow",
+    "IndexedSlice",
+    "IndexedSlices",
+    "IndexedSlicesError",
     "SCHEMA_DDL",
     "SCHEMA_VERSION",
     "SQLiteFTSBackend",

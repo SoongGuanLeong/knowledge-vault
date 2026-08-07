@@ -12,8 +12,8 @@ import sqlite3
 from pathlib import Path
 from types import TracebackType
 
-from knowledge_vault.retrieval.errors import SearchBackendError
-from knowledge_vault.retrieval.models import SearchFilters, SearchResult
+from knowledge_vault.retrieval.errors import IndexedSlicesError, SearchBackendError
+from knowledge_vault.retrieval.models import IndexedSlices, SearchFilters, SearchResult
 from knowledge_vault.retrieval.schema import SchemaError, check_schema, connect_db
 
 _SEARCH_SQL = """
@@ -150,3 +150,35 @@ class SQLiteFTSBackend:
             )
             for row in rows
         ]
+
+    _INDEXED_SLICES_SQL = """
+        SELECT source, version, chunks_sha256, document_count, chunk_count
+        FROM indexed_sources
+        ORDER BY source, version
+        """
+
+    def indexed_slices(self) -> IndexedSlices:
+        """Return every (source, version) slice registered in the gold index.
+
+        Runs without exposing a connection, cursor, or schema checks to the
+        caller. An empty registry yields an empty :class:`IndexedSlices`.
+
+        Returns
+        -------
+        IndexedSlices
+            Typed answer over ``indexed_sources``; distinct sources and
+            versions are derivable from the result without re-querying.
+
+        Raises
+        ------
+        IndexedSlicesError
+            If the database is missing, corrupt, or schema-incompatible. The
+            original cause is chained via ``from``.
+        """
+        if self._conn is None:
+            raise IndexedSlicesError("search backend is not open; call open() first")
+        try:
+            rows = self._conn.execute(self._INDEXED_SLICES_SQL).fetchall()
+        except sqlite3.DatabaseError as exc:
+            raise IndexedSlicesError(f"cannot read indexed slices from {self._db_path}") from exc
+        return IndexedSlices.from_rows([tuple(row) for row in rows])

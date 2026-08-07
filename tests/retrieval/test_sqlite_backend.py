@@ -27,7 +27,9 @@ from knowledge_vault.retrieval import (
     create_schema,
     knowledge_db_path,
 )
+from knowledge_vault.retrieval.errors import IndexedSlicesError
 from knowledge_vault.retrieval.indexing import IndexStage
+from knowledge_vault.retrieval.models import IndexedSlice, IndexedSlices
 
 if not fts5_available():
     pytest.skip("FTS5 not available in this SQLite build", allow_module_level=True)
@@ -499,3 +501,119 @@ def test_context_manager_lifecycle(corpus: Path) -> None:
         assert backend.search("spark") != []
     with pytest.raises(SearchBackendError):
         backend.search("spark")
+
+
+def test_indexed_slices_returns_all_registered_slices(corpus: Path) -> None:
+    backend = _open_backend(corpus)
+    try:
+        result = backend.indexed_slices()
+    finally:
+        backend.close()
+
+    assert isinstance(result, IndexedSlices)
+    slices = result.slices
+    assert len(slices) == 3
+    seen = {(s.source, s.version) for s in slices}
+    assert seen == {("spark", "4.0.0"), ("spark", "3.5.0"), ("flink", "1.17.0")}
+    for s in slices:
+        assert isinstance(s, IndexedSlice)
+        assert s.chunks_sha256
+        assert s.document_count >= 1
+        assert s.chunk_count >= 1
+
+
+def test_indexed_slices_empty_index_yields_empty_answer(
+    tmp_path: Path, make_ctx: Callable[..., PipelineContext]
+) -> None:
+    store = tmp_path / "empty-store"
+    db_path = knowledge_db_path(store)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = connect_db(db_path)
+    create_schema(conn)
+    conn.close()
+
+    backend = _open_backend(store)
+    try:
+        result = backend.indexed_slices()
+    finally:
+        backend.close()
+
+    assert result.slices == ()
+    assert result.sources == ()
+    assert result.versions == ()
+
+
+def test_indexed_slices_distinct_sources_and_versions_derivable(corpus: Path) -> None:
+    backend = _open_backend(corpus)
+    try:
+        result = backend.indexed_slices()
+    finally:
+        backend.close()
+
+    assert set(result.sources) == {"spark", "flink"}
+    assert set(result.versions) == {"4.0.0", "3.5.0", "1.17.0"}
+
+
+def test_indexed_slices_preserves_first_appearance_order(corpus: Path) -> None:
+    backend = _open_backend(corpus)
+    try:
+        result = backend.indexed_slices()
+    finally:
+        backend.close()
+
+    assert list(result.sources) == ["flink", "spark"]
+    assert list(result.versions) == ["1.17.0", "3.5.0", "4.0.0"]
+
+
+def test_indexed_slices_before_open_raises_indexed_slices_error(tmp_path: Path) -> None:
+    backend = SQLiteFTSBackend(tmp_path / "knowledge.db")
+    with pytest.raises(IndexedSlicesError, match="not open"):
+        backend.indexed_slices()
+
+
+def test_indexed_slices_on_missing_db_raises_search_backend_error(tmp_path: Path) -> None:
+    backend = SQLiteFTSBackend(tmp_path / "does-not-exist" / "knowledge.db")
+    with pytest.raises(SearchBackendError) as excinfo:
+        backend.open()
+
+    assert excinfo.value.__cause__ is not None
+
+
+def test_indexed_slices_on_corrupt_db_raises_search_backend_error(tmp_path: Path) -> None:
+    db_path = tmp_path / "knowledge.db"
+    db_path.write_bytes(b"not a sqlite database")
+
+    backend = SQLiteFTSBackend(db_path)
+    with pytest.raises(SearchBackendError) as excinfo:
+        backend.open()
+
+    assert excinfo.value.__cause__ is not None
+
+
+def test_indexed_slices_on_incompatible_schema_raises_search_backend_error(tmp_path: Path) -> None:
+    db_path = tmp_path / "knowledge.db"
+    conn = connect_db(db_path)
+    create_schema(conn)
+    conn.execute("UPDATE metadata SET schema_version = ? WHERE id = 1", (SCHEMA_VERSION + 1,))
+    conn.commit()
+    conn.close()
+
+    backend = SQLiteFTSBackend(db_path)
+    with pytest.raises(SearchBackendError):
+        backend.open()
+
+
+def test_indexed_slices_on_corrupt_connection_raises_indexed_slices_error(tmp_path: Path) -> None:
+    db_path = tmp_path / "knowledge.db"
+    db_path.write_bytes(b"not a sqlite database")
+
+    backend = SQLiteFTSBackend(db_path)
+    backend._conn = connect_db(db_path)
+    with pytest.raises(IndexedSlicesError) as excinfo:
+        backend.indexed_slices()
+
+    assert excinfo.value.__cause__ is not None
+
+
+def test_indexed_slices_error_is_search_backend_error() -> None:
+    assert issubclass(IndexedSlicesError, SearchBackendError)
