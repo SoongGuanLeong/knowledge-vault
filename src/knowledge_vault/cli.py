@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -19,6 +20,16 @@ from knowledge_vault.git import (
     supports_partial_clone,
 )
 from knowledge_vault.ingest import ingest
+from knowledge_vault.retrieval import (
+    SearchBackendError,
+    SearchFilters,
+    SQLiteFTSBackend,
+    check_schema,
+    connect_db,
+    knowledge_db_path,
+)
+from knowledge_vault.retrieval.schema import SchemaError
+from knowledge_vault.snippet import extract_terms, make_snippet
 from knowledge_vault.store import (
     StoreError,
     default_sources_dir,
@@ -66,6 +77,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     doctor_parser = subparsers.add_parser("doctor", parents=[common], help="pre-flight environment checks")
     doctor_parser.set_defaults(func=_cmd_doctor)
+
+    search_parser = subparsers.add_parser("search", help="full-text search over indexed chunks")
+    search_parser.add_argument("--store", help="knowledge-store root directory")
+    search_parser.add_argument("query", help="FTS5 query string (e.g. 'spark', 'spark AND sql', 'stream*')")
+    search_parser.add_argument("--source", help="restrict search to a source")
+    search_parser.add_argument("--version", help="restrict search to a version (independent of --source)")
+    search_parser.add_argument("--limit", type=int, default=10, help="maximum number of results (default 10)")
+    search_parser.set_defaults(func=_cmd_search)
 
     return parser
 
@@ -175,6 +194,79 @@ def _cmd_status(args: argparse.Namespace) -> int:
     else:
         print("No drift detected.")
     return 1 if drift else 0
+
+
+def _cmd_search(args: argparse.Namespace) -> int:
+    """Run a full-text search over the store's gold index.
+
+    Validates ``--source``/``--version`` against the gold index's
+    ``indexed_sources`` registry (unknown values are user typos -> exit 2),
+    searches with the SQLiteFTSBackend, and renders human-readable result
+    blocks. Exit codes per the CLI contract (#27): 0 = hits found, 1 = no
+    results, 2 = error.
+    """
+    store = Path(args.store) if args.store else Path(os.environ.get("KV_STORE", str(default_store())))
+    db_path = knowledge_db_path(store)
+
+    if not db_path.is_file():
+        print(f"error: gold index not found at {db_path}; run 'kv ingest'", file=sys.stderr)
+        return 2
+
+    if args.limit < 1:
+        print("error: --limit must be >= 1", file=sys.stderr)
+        return 2
+
+    filters = SearchFilters(source=args.source, version=args.version)
+    try:
+        if filters.source is not None or filters.version is not None:
+            sources, versions = _indexed_sources_and_versions(db_path)
+            for label, value, known in (
+                ("source", filters.source, sources),
+                ("version", filters.version, versions),
+            ):
+                if value is not None and value not in known:
+                    print(f"error: unknown {label} '{value}'", file=sys.stderr)
+                    return 2
+
+        with SQLiteFTSBackend(db_path) as backend:
+            results = backend.search(args.query, k=args.limit, filters=filters)
+    except (SearchBackendError, SchemaError, sqlite3.DatabaseError) as exc:
+        print(f"error: search failed: {exc}", file=sys.stderr)
+        return 2
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    if not results:
+        return 1
+
+    highlight = sys.stdout.isatty()
+    terms = extract_terms(args.query)
+    for rank, hit in enumerate(results, start=1):
+        snippet = make_snippet(hit.text, terms, highlight=highlight)
+        print(f"{rank}. {hit.source}@{hit.version}  {hit.path}:{hit.start_line}-{hit.end_line}")
+        print(f"   {snippet}")
+        if rank < len(results):
+            print()
+    return 0
+
+
+def _indexed_sources_and_versions(db_path: Path) -> tuple[set[str], set[str]]:
+    """The (sources, versions) pairs registered in the gold index.
+
+    Read from ``indexed_sources``; a missing/incompatible index surfaces as a
+    search error via the raised :class:`SchemaError`/``sqlite3.DatabaseError``.
+    """
+    conn = connect_db(db_path)
+    try:
+        check_schema(conn)
+        rows = conn.execute("SELECT DISTINCT source FROM indexed_sources").fetchall()
+        sources = {row[0] for row in rows}
+        rows = conn.execute("SELECT DISTINCT version FROM indexed_sources").fetchall()
+        versions = {row[0] for row in rows}
+    finally:
+        conn.close()
+    return sources, versions
 
 
 def _cmd_doctor(args: argparse.Namespace) -> int:
