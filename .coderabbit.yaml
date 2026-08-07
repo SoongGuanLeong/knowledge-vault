@@ -1,0 +1,40 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: "en-US"
+reviews:
+  profile: "chill"
+  request_changes_workflow: false
+  poem: false
+  review_status: true
+  high_level_summary: true
+  collapse_walkthrough: false
+  auto_review:
+    enabled: true
+    drafts: false
+  path_instructions:
+    - path: "src/**"
+      instructions: |
+        Review Python under src/knowledge_vault against docs/standards/python.md:
+        - src/ layout, absolute imports, `from __future__ import annotations`.
+        - Built-in generics (`list[str]`) and `X | None` instead of `Optional[X]`.
+        - Strict type checking; no `# type: ignore` without a justification comment.
+        - NumPy-style docstrings on all public functions.
+        - Explicit data models rather than dynamic schema dicts crossing function boundaries.
+        - 120-char lines, no over-general abstractions, no premature optimization.
+    - path: "tests/**"
+      instructions: |
+        Review tests against docs/standards/testing.md:
+        - Every non-trivial function has tests including failure paths.
+        - Use `pytest.raises` for expected exceptions, not try/except.
+        - Shared fixtures in tests/conftest.py with appropriate scope.
+        - Keep unit tests fast; no silent test failures.
+  tools:
+    ruff:
+      enabled: true
+    semgrep:
+      enabled: true
+    actionlint:
+      enabled: true
+    markdownlint:
+      enabled: true
+chat:
+  auto_reply: true

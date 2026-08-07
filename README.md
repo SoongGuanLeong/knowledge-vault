@@ -91,7 +91,7 @@ sources/                 # Per-source YAML config files
 ## Standards
 
 - Python 3.11+, uv-only dependency management
-- `src/` layout, ruff formatting/linting, basedpyright strict
+- `src/` layout, ruff formatting/linting, basedpyright strict, semgrep SAST
 - Tests run fully offline against local fixture git repos
 - See `docs/standards/` for detailed rules
 
