@@ -32,6 +32,9 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "B", "UP", "N"]
 
+[tool.bandit]
+skips = ["B404", "B603", "B607"]
+
 [tool.basedpyright]
 include = ["src"]
 exclude = ["tests"]
@@ -46,10 +49,12 @@ addopts = [
     "--strict-markers",
     "--cov=knowledge_vault",
     "--cov-report=term-missing",
+    "--cov-fail-under=56",
 ]
 
 [dependency-groups]
 dev = [
+    "bandit>=1.9.4",
     "pip-audit>=2.10.1",
     "pre-commit>=4.6.1",
 ]

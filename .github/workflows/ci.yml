@@ -41,5 +41,8 @@ jobs:
       - name: Pytest
         run: uv run pytest
 
+      - name: Bandit (security scan)
+        run: uv run bandit -r src/ -c pyproject.toml
+
       - name: pip-audit (supply chain)
         run: uv run pip-audit

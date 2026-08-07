@@ -21,12 +21,13 @@ audit: ## Run pip-audit for dependency vulnerabilities.
 gitleaks: ## Run gitleaks to detect secrets.
 	gitleaks detect --source . -v
 
-check: ## Run all quality checks (gitleaks, format check, lint, typecheck, test, audit).
+check: ## Run all quality checks (gitleaks, format check, lint, typecheck, test, bandit, audit).
 	gitleaks detect --source . -v
 	uv run ruff format --check .
 	uv run ruff check .
 	uv run basedpyright
 	uv run pytest
+	uv run bandit -r src/ -c pyproject.toml
 	uv run pip-audit
 
 clean: ## Remove caches and build artifacts.
