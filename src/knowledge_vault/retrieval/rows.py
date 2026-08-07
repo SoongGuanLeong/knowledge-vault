@@ -59,9 +59,14 @@ def parse_chunks(content: str) -> list[DocumentRow]:
         If any line is not valid JSON.
     """
     chunks_by_path: dict[str, list[ChunkRow]] = {}
+    doc_order: list[str] = []
     for line in content.splitlines():
         record = json.loads(line)
-        chunks_by_path.setdefault(record["path"], []).append(
+        path = record["path"]
+        if path not in chunks_by_path:
+            chunks_by_path[path] = []
+            doc_order.append(path)
+        chunks_by_path[path].append(
             ChunkRow(
                 chunk_uuid=record["chunk_id"],
                 text=record["text"],
@@ -74,8 +79,8 @@ def parse_chunks(content: str) -> list[DocumentRow]:
     return [
         DocumentRow(
             path=path,
-            sha256=hashlib.sha256(CHUNK_SEPARATOR.join(c.text for c in chunks).encode()).hexdigest(),
-            chunks=tuple(chunks),
+            sha256=hashlib.sha256(CHUNK_SEPARATOR.join(c.text for c in chunks_by_path[path]).encode()).hexdigest(),
+            chunks=tuple(chunks_by_path[path]),
         )
-        for path, chunks in chunks_by_path.items()
+        for path in doc_order
     ]

@@ -114,3 +114,19 @@ def test_parse_chunks_malformed_line_raises_json_decode_error() -> None:
 
     with pytest.raises(json.JSONDecodeError):
         parse_chunks(content)
+
+
+def test_parse_chunks_empty_text_chunk_included() -> None:
+    """Chunk with empty text is still a chunk; doc sha256 hashes the empty string."""
+    records = [
+        _chunk(chunk_id="c1", path="a.md", text="alpha"),
+        _chunk(chunk_id="c2", path="empty.md", text=""),
+    ]
+    docs = parse_chunks(_jsonl(records))
+
+    assert len(docs) == 2
+    empty_doc = next(d for d in docs if d.path == "empty.md")
+    assert empty_doc.sha256 == hashlib.sha256(b"").hexdigest()
+    assert len(empty_doc.chunks) == 1
+    assert empty_doc.chunks[0].text == ""
+    assert empty_doc.chunks[0].chunk_uuid == "c2"
