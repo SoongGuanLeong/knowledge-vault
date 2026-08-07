@@ -17,6 +17,7 @@ test: ## Run the test suite.
 
 coverage: ## Run tests with subprocess-aware coverage and enforce coverage gates.
 	uv run pytest --cov=knowledge_vault --cov-report=term-missing
+	uv run coverage combine || true
 	uv run coverage report --fail-under=85
 	uv run coverage report --include='*/cli.py' --fail-under=80
 
