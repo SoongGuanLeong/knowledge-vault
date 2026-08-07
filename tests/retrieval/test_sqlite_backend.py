@@ -316,6 +316,123 @@ def test_search_ties_broken_deterministically(relevance_store: Path) -> None:
     assert first == second == ["uuid-hot", "uuid-cold", "uuid-ident-j", "uuid-ident-k"]
 
 
+def test_search_bm25_prefers_shorter_documents_for_equal_term_frequency(
+    tmp_path: Path, make_ctx: Callable[..., PipelineContext]
+) -> None:
+    store = tmp_path / "length-store"
+    _index(
+        make_ctx,
+        store,
+        "spark",
+        "4.0.0",
+        [
+            _chunk_record("uuid-short", "short.md", "spark"),
+            _chunk_record("uuid-long", "long.md", "spark " + "word " * 50),
+        ],
+    )
+
+    backend = _open_backend(store)
+    try:
+        results = backend.search("spark")
+    finally:
+        backend.close()
+
+    assert [r.chunk_uuid for r in results] == ["uuid-short", "uuid-long"]
+    assert results[0].score > results[1].score
+
+
+def test_search_unicode_latin_diacritics_match_folded_query(
+    tmp_path: Path, make_ctx: Callable[..., PipelineContext]
+) -> None:
+    store = tmp_path / "unicode-store"
+    _index(make_ctx, store, "spark", "4.0.0", [_chunk_record("uuid-uni", "intro.md", "Café naïve résumé déjà vu")])
+
+    backend = _open_backend(store)
+    try:
+        folded = backend.search("cafe")
+        as_written = backend.search("Café")
+    finally:
+        backend.close()
+
+    assert [r.chunk_uuid for r in folded] == ["uuid-uni"]
+    assert [r.chunk_uuid for r in as_written] == ["uuid-uni"]
+
+
+def test_search_unicode_cjk_words_tokenize_on_whitespace(
+    tmp_path: Path, make_ctx: Callable[..., PipelineContext]
+) -> None:
+    store = tmp_path / "cjk-store"
+    _index(make_ctx, store, "spark", "4.0.0", [_chunk_record("uuid-cjk", "intro.md", "한국어 문서 검색 시스템")])
+
+    backend = _open_backend(store)
+    try:
+        results = backend.search("한국어")
+    finally:
+        backend.close()
+
+    assert [r.chunk_uuid for r in results] == ["uuid-cjk"]
+
+
+def test_search_unicode_cjk_contiguous_run_needs_prefix(
+    tmp_path: Path, make_ctx: Callable[..., PipelineContext]
+) -> None:
+    store = tmp_path / "cjk-run-store"
+    _index(make_ctx, store, "spark", "4.0.0", [_chunk_record("uuid-run", "intro.md", "机器学习模型用于处理自然语言")])
+
+    backend = _open_backend(store)
+    try:
+        substring = backend.search("机器学习")
+        prefix = backend.search("机器学*")
+    finally:
+        backend.close()
+
+    assert substring == []
+    assert [r.chunk_uuid for r in prefix] == ["uuid-run"]
+
+
+def test_search_phrase_requires_adjacent_terms(tmp_path: Path, make_ctx: Callable[..., PipelineContext]) -> None:
+    store = tmp_path / "phrase-store"
+    _index(make_ctx, store, "spark", "4.0.0", [_chunk_record("uuid-phrase", "sql.md", "spark sql catalyst optimizer")])
+
+    backend = _open_backend(store)
+    try:
+        forward = backend.search('"spark sql"')
+        reversed_ = backend.search('"sql spark"')
+    finally:
+        backend.close()
+
+    assert [r.chunk_uuid for r in forward] == ["uuid-phrase"]
+    assert reversed_ == []
+
+
+def test_search_prefix_matches_word_prefix(tmp_path: Path, make_ctx: Callable[..., PipelineContext]) -> None:
+    store = tmp_path / "prefix-store"
+    _index(make_ctx, store, "spark", "4.0.0", [_chunk_record("uuid-prefix", "streams.md", "streaming dataflow engine")])
+
+    backend = _open_backend(store)
+    try:
+        prefix = backend.search("stream*")
+        non_prefix = backend.search("streamin")
+    finally:
+        backend.close()
+
+    assert [r.chunk_uuid for r in prefix] == ["uuid-prefix"]
+    assert non_prefix == []
+
+
+def test_search_empty_index_returns_no_results(tmp_path: Path, make_ctx: Callable[..., PipelineContext]) -> None:
+    store = tmp_path / "empty-store"
+    _index(make_ctx, store, "spark", "4.0.0", [])
+
+    backend = _open_backend(store)
+    try:
+        results = backend.search("anything")
+    finally:
+        backend.close()
+
+    assert results == []
+
+
 def test_open_on_missing_db_raises_search_backend_error(tmp_path: Path) -> None:
     backend = SQLiteFTSBackend(tmp_path / "does-not-exist" / "knowledge.db")
     with pytest.raises(SearchBackendError) as excinfo:

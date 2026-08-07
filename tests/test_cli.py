@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 from conftest import fts5_available
 
-from knowledge_vault.retrieval import SCHEMA_VERSION, connect_db, knowledge_db_path
+from knowledge_vault.retrieval import SCHEMA_VERSION, SQLiteFTSBackend, connect_db, knowledge_db_path
 
 skip_without_fts5 = pytest.mark.skipif(not fts5_available(), reason="FTS5 not available in this SQLite build")
 
@@ -434,3 +434,19 @@ def test_ingest_gold_db_skips_unchanged_slice_after_bronze_reacquire(run_cli, so
     assert "acquired v0.1.0" in second.stdout
     assert db_path.read_bytes() == before
     assert db_path.stat().st_mtime_ns == mtime_before
+
+
+@skip_without_fts5
+def test_cli_ingest_then_backend_search_e2e(run_cli, sources_dir, store_dir) -> None:
+    result = run_cli(["ingest", "spark", "--tag", "v0.1.0", "--store", str(store_dir), "--sources", str(sources_dir)])
+    assert result.returncode == 0, result.stderr
+
+    with SQLiteFTSBackend(knowledge_db_path(store_dir)) as backend:
+        results = backend.search("spark")
+
+    assert [r.path for r in results] == ["intro.md"]
+    for hit in results:
+        assert hit.source == "spark"
+        assert hit.version == "0.1.0"
+        assert hit.text
+        assert hit.score > 0
