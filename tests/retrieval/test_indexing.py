@@ -425,3 +425,141 @@ def test_same_chunk_uuid_across_versions_is_allowed(make_ctx: Callable[..., Pipe
         assert conn.execute("SELECT chunk_uuid, count(*) FROM chunks GROUP BY chunk_uuid").fetchall() == [
             ("uuid-shared", 2)
         ]
+
+
+def test_reingest_changed_slice_replaces_rows_and_updates_registry(
+    make_ctx: Callable[[], PipelineContext],
+) -> None:
+    ctx = make_ctx()
+    _write_chunks(
+        ctx,
+        [
+            _chunk_record("uuid-a", "intro.md", "alpha"),
+            _chunk_record("uuid-b", "sql.md", "beta"),
+        ],
+    )
+    IndexStage().execute(ctx)
+
+    _write_chunks(
+        ctx,
+        [
+            _chunk_record("uuid-c", "intro.md", "alpha revised"),
+            _chunk_record("uuid-d", "guide.md", "gamma"),
+        ],
+    )
+    IndexStage().execute(ctx)
+
+    with sqlite3.connect(knowledge_db_path(ctx.store)) as conn:
+        assert conn.execute("SELECT path FROM documents ORDER BY document_id").fetchall() == [
+            ("intro.md",),
+            ("guide.md",),
+        ]
+        assert conn.execute("SELECT chunk_id, chunk_uuid FROM chunks ORDER BY chunk_id").fetchall() == [
+            (1, "uuid-c"),
+            (2, "uuid-d"),
+        ]
+        assert conn.execute(
+            "SELECT chunks_sha256 FROM indexed_sources WHERE source = 'test-source' AND version = '1.0.0'"
+        ).fetchone() == (hashlib.sha256(ctx.chunks_path.read_bytes()).hexdigest(),)
+        assert conn.execute(
+            "SELECT document_count, chunk_count FROM indexed_sources WHERE source = 'test-source' AND version = '1.0.0'"
+        ).fetchone() == (2, 2)
+
+
+def test_reingest_changed_slice_rebuilds_fts_with_new_rows_only(
+    make_ctx: Callable[[], PipelineContext],
+) -> None:
+    ctx = make_ctx()
+    _write_chunks(ctx, [_chunk_record("uuid-a", "intro.md", "broadcast spark engine")])
+    IndexStage().execute(ctx)
+
+    _write_chunks(ctx, [_chunk_record("uuid-b", "intro.md", "buzzy beehive")])
+    IndexStage().execute(ctx)
+
+    with sqlite3.connect(knowledge_db_path(ctx.store)) as conn:
+        assert conn.execute("SELECT count(*) FROM fts_chunks WHERE fts_chunks MATCH 'spark'").fetchone() == (0,)
+        assert conn.execute("SELECT rowid FROM fts_chunks WHERE fts_chunks MATCH 'beehive'").fetchall() == [(1,)]
+        assert conn.execute("SELECT rowid FROM fts_chunks ORDER BY rowid").fetchall() == [(1,)]
+
+
+def test_reingest_changed_slice_leaves_other_slices_intact(
+    make_ctx: Callable[..., PipelineContext],
+) -> None:
+    ctx_v1 = make_ctx()
+    _write_chunks(
+        ctx_v1,
+        [
+            _chunk_record("uuid-a", "intro.md", "alpha"),
+            _chunk_record("uuid-b", "sql.md", "beta"),
+        ],
+    )
+    IndexStage().execute(ctx_v1)
+
+    ctx_v2 = make_ctx(version="2.0.0", store=ctx_v1.store)
+    _write_chunks(ctx_v2, [_chunk_record("uuid-2", "intro.md", "alpha v2")])
+    IndexStage().execute(ctx_v2)
+
+    _write_chunks(
+        ctx_v1,
+        [
+            _chunk_record("uuid-c", "intro.md", "alpha revised"),
+            _chunk_record("uuid-d", "guide.md", "gamma"),
+        ],
+    )
+    IndexStage().execute(ctx_v1)
+
+    with sqlite3.connect(knowledge_db_path(ctx_v1.store)) as conn:
+        assert conn.execute(
+            "SELECT document_id, source, version, path FROM documents ORDER BY document_id"
+        ).fetchall() == [
+            (3, "test-source", "2.0.0", "intro.md"),
+            (4, "test-source", "1.0.0", "intro.md"),
+            (5, "test-source", "1.0.0", "guide.md"),
+        ]
+        assert conn.execute("SELECT source, version FROM indexed_sources ORDER BY source, version").fetchall() == [
+            ("test-source", "1.0.0"),
+            ("test-source", "2.0.0"),
+        ]
+        assert conn.execute("SELECT rowid FROM fts_chunks WHERE fts_chunks MATCH 'v2'").fetchall() == [(3,)]
+
+
+def test_replace_failure_rolls_back_leaving_old_slice_intact(
+    make_ctx: Callable[[], PipelineContext],
+) -> None:
+    ctx = make_ctx()
+    _write_chunks(
+        ctx,
+        [
+            _chunk_record("uuid-a", "intro.md", "alpha"),
+            _chunk_record("uuid-b", "sql.md", "beta"),
+        ],
+    )
+    IndexStage().execute(ctx)
+
+    original_sha = hashlib.sha256(ctx.chunks_path.read_bytes()).hexdigest()
+
+    _write_chunks(
+        ctx,
+        [
+            _chunk_record("uuid-x", "intro.md", "alpha revised"),
+            _chunk_record("uuid-x", "intro.md", "beta revised"),
+        ],
+    )
+    with pytest.raises(sqlite3.IntegrityError):
+        IndexStage().execute(ctx)
+
+    with sqlite3.connect(knowledge_db_path(ctx.store)) as conn:
+        assert conn.execute("SELECT path FROM documents ORDER BY document_id").fetchall() == [
+            ("intro.md",),
+            ("sql.md",),
+        ]
+        assert conn.execute("SELECT chunk_uuid FROM chunks ORDER BY chunk_id").fetchall() == [
+            ("uuid-a",),
+            ("uuid-b",),
+        ]
+        assert conn.execute("SELECT count(*) FROM fts_chunks").fetchone() == (2,)
+        assert conn.execute("SELECT rowid FROM fts_chunks WHERE fts_chunks MATCH 'alpha'").fetchall() == [(1,)]
+        assert conn.execute("SELECT count(*) FROM fts_chunks WHERE fts_chunks MATCH 'revised'").fetchone() == (0,)
+        assert conn.execute(
+            "SELECT chunks_sha256 FROM indexed_sources WHERE source = 'test-source' AND version = '1.0.0'"
+        ).fetchone() == (original_sha,)

@@ -3,11 +3,14 @@
 Writes the store-level ``gold/knowledge.db`` for one (source, version) slice,
 consuming the row model from :mod:`knowledge_vault.retrieval.rows`. Bootstraps
 the schema, rejects an incompatible schema (rebuild-not-migrate), then inserts
-documents and chunks in chunks.jsonl order with stable ids, rebuilds FTS, and
+documents and chunks in chunks.jsonl order, rebuilds FTS, and
 records the ``indexed_sources`` registry row. All inserts happen in one atomic
 transaction. Idempotent: when the registry's ``chunks_sha256`` already matches
 the current chunks.jsonl bytes, execution skips with no DB write (ticket #37).
-Replace-on-change (ticket #38) is a later addition.
+When a slice is already registered but its hash differs, the existing slice is
+replaced atomically (ticket #38): delete the slice's documents (CASCADE wipes
+its chunks), reinsert in chunks.jsonl order, rebuild FTS, update the registry —
+all in one transaction, leaving other slices untouched (stale-by-default).
 """
 
 from __future__ import annotations
@@ -31,9 +34,10 @@ from knowledge_vault.retrieval.schema import (
 class IndexStage:
     """Write the ``knowledge.db`` slice for a store.
 
-    Deterministic: identical chunks.jsonl input yields identical relational
+    Deterministic: an identical ingest sequence yields identical relational
     contents and search results across fresh stores (not byte-identical DBs).
-    Idempotent: unchanged slices are skipped, leaving the database untouched.
+    Idempotent: unchanged slices are skipped, leaving the database untouched;
+    changed slices are replaced in place atomically (ticket #38).
     """
 
     def execute(self, ctx: PipelineContext) -> PipelineContext:
@@ -77,7 +81,7 @@ class IndexStage:
         conn = connect_db(db_path)
         try:
             self._bootstrap(conn)
-            self._insert_slice(conn, documents, ctx.config.name, ctx.version, chunks_sha256)
+            self._write_slice(conn, documents, ctx.config.name, ctx.version, chunks_sha256)
         finally:
             conn.close()
 
@@ -114,22 +118,27 @@ class IndexStage:
             conn = connect_db(db_path)
             try:
                 check_schema(conn)
-                row = conn.execute(
-                    "SELECT chunks_sha256 FROM indexed_sources WHERE source = ? AND version = ?",
-                    (source, version),
-                ).fetchone()
+                registered_sha = self._registry_sha(conn, source, version)
             finally:
                 conn.close()
         except (SchemaError, sqlite3.DatabaseError):
             return False
-        return row is not None and row[0] == chunks_sha256
+        return registered_sha == chunks_sha256
+
+    def _registry_sha(self, conn: sqlite3.Connection, source: str, version: str) -> str | None:
+        """The registry's recorded ``chunks_sha256`` for the slice, or None if not indexed."""
+        row = conn.execute(
+            "SELECT chunks_sha256 FROM indexed_sources WHERE source = ? AND version = ?",
+            (source, version),
+        ).fetchone()
+        return row[0] if row is not None else None
 
     def _bootstrap(self, conn: sqlite3.Connection) -> None:
         """Create the schema if absent and verify compatibility (rebuild-not-migrate)."""
         create_schema(conn)
         check_schema(conn)
 
-    def _insert_slice(
+    def _write_slice(
         self,
         conn: sqlite3.Connection,
         documents: list[DocumentRow],
@@ -137,9 +146,24 @@ class IndexStage:
         version: str,
         chunks_sha256: str,
     ) -> None:
-        """Insert one (source, version) slice in a single atomic transaction."""
+        """Insert or replace one (source, version) slice in a single atomic transaction.
+
+        Replace-on-change (ticket #38): when the slice is already registered, its
+        documents are deleted first (CASCADE wipes the chunks) and the new rows
+        are reinserted in chunks.jsonl order, then FTS is rebuilt and the
+        registry updated. All writes share one transaction, so a failure rolls
+        back to the untouched previous state. Ids are assigned as MAX+1 over the
+        rows remaining after the delete, so replacement never collides on
+        INTEGER PRIMARY KEYs and other slices stay intact (stale-by-default).
+        """
         conn.execute("BEGIN")
         try:
+            if self._registry_sha(conn, source, version) is not None:
+                conn.execute(
+                    "DELETE FROM documents WHERE source = ? AND version = ?",
+                    (source, version),
+                )
+
             next_document_id = int(
                 conn.execute("SELECT COALESCE(MAX(document_id), 0) + 1 FROM documents").fetchone()[0]
             )
@@ -170,7 +194,11 @@ class IndexStage:
             conn.execute("INSERT INTO fts_chunks (fts_chunks) VALUES ('rebuild')")
             conn.execute(
                 "INSERT INTO indexed_sources (source, version, chunks_sha256, document_count, chunk_count) "
-                "VALUES (?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT (source, version) DO UPDATE SET "
+                "chunks_sha256 = excluded.chunks_sha256, "
+                "document_count = excluded.document_count, "
+                "chunk_count = excluded.chunk_count",
                 (source, version, chunks_sha256, len(documents), sum(len(d.chunks) for d in documents)),
             )
         except Exception:
