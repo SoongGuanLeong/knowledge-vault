@@ -42,6 +42,11 @@ pythonVersion = "3.11"
 typeCheckingMode = "strict"
 reportMissingImports = false
 
+[tool.coverage.run]
+omit = [
+    "src/knowledge_vault/__main__.py",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = [
