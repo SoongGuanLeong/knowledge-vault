@@ -1,10 +1,12 @@
-"""Unit tests for retrieval/indexing.py: IndexStage fresh-store indexing (ticket #41)."""
+"""Unit tests for retrieval/indexing.py: IndexStage indexing and idempotent skip (tickets #41, #37)."""
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
+import warnings
 from collections.abc import Callable
 from pathlib import Path
 
@@ -95,6 +97,73 @@ def test_missing_chunks_raises_exact_message(make_ctx: Callable[[], PipelineCont
         IndexStage().execute(ctx)
 
     assert str(excinfo.value) == "Run ChunkStage before IndexStage."
+
+
+def test_reingest_unchanged_slice_skips_without_touching_db(
+    make_ctx: Callable[[], PipelineContext],
+) -> None:
+    ctx = make_ctx()
+    _write_chunks(
+        ctx,
+        [
+            _chunk_record("uuid-a", "intro.md", "alpha"),
+            _chunk_record("uuid-b", "sql.md", "beta"),
+        ],
+    )
+
+    IndexStage().execute(ctx)
+
+    db_path = knowledge_db_path(ctx.store)
+    before = db_path.read_bytes()
+    os.utime(db_path, (1000, 1000))
+    with sqlite3.connect(db_path) as conn:
+        docs_before = conn.execute("SELECT count(*) FROM documents").fetchone()[0]
+        chunks_before = conn.execute("SELECT count(*) FROM chunks").fetchone()[0]
+        fts_before = conn.execute("SELECT count(*) FROM fts_chunks").fetchone()[0]
+
+    IndexStage().execute(ctx)
+
+    assert db_path.read_bytes() == before
+    assert db_path.stat().st_mtime_ns == 1000 * 1_000_000_000
+    with sqlite3.connect(db_path) as conn:
+        assert conn.execute("SELECT count(*) FROM documents").fetchone()[0] == docs_before
+        assert conn.execute("SELECT count(*) FROM chunks").fetchone()[0] == chunks_before
+        assert conn.execute("SELECT count(*) FROM fts_chunks").fetchone()[0] == fts_before
+        assert conn.execute("SELECT count(*) FROM indexed_sources").fetchone()[0] == 1
+
+
+def test_reingest_skip_prints_verbatim_up_to_date_literal(
+    make_ctx: Callable[[], PipelineContext],
+    capsys,
+) -> None:
+    ctx = make_ctx()
+    _write_chunks(ctx, [_chunk_record("uuid-a", "intro.md", "alpha")])
+
+    IndexStage().execute(ctx)
+    capsys.readouterr()
+
+    IndexStage().execute(ctx)
+    out = capsys.readouterr().out
+
+    assert "gold index up-to-date at v1.0.0" in out
+    assert "test-source gold index" not in out
+    assert "indexed v1.0.0" not in out
+
+
+def test_skip_path_does_not_emit_empty_slice_warning(
+    make_ctx: Callable[[], PipelineContext],
+) -> None:
+    ctx = make_ctx()
+    _write_chunks(ctx, [])
+
+    with pytest.warns(UserWarning, match="zero chunks"):
+        IndexStage().execute(ctx)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        IndexStage().execute(ctx)
+
+    assert not any(issubclass(w.category, UserWarning) for w in caught)
 
 
 def test_fresh_store_bootstraps_schema_and_populates(make_ctx: Callable[[], PipelineContext]) -> None:

@@ -1,12 +1,13 @@
-"""SQLite IndexStage: first index of ``chunks.jsonl`` into a fresh ``knowledge.db`` (ticket #41).
+"""SQLite IndexStage: ``chunks.jsonl`` into ``knowledge.db`` (tickets #41, #37).
 
 Writes the store-level ``gold/knowledge.db`` for one (source, version) slice,
-consuming the row model from :mod:`knowledge_vault.retrieval.rows`. Fresh store
-only: bootstraps the schema, rejects an incompatible schema (rebuild-not-migrate),
-then inserts documents and chunks in chunks.jsonl order with stable ids, rebuilds
-FTS, and records the ``indexed_sources`` registry row. All inserts happen in one
-atomic transaction. Skip-on-unchanged (ticket #37) and replace-on-change
-(ticket #38) are later additions.
+consuming the row model from :mod:`knowledge_vault.retrieval.rows`. Bootstraps
+the schema, rejects an incompatible schema (rebuild-not-migrate), then inserts
+documents and chunks in chunks.jsonl order with stable ids, rebuilds FTS, and
+records the ``indexed_sources`` registry row. All inserts happen in one atomic
+transaction. Idempotent: when the registry's ``chunks_sha256`` already matches
+the current chunks.jsonl bytes, execution skips with no DB write (ticket #37).
+Replace-on-change (ticket #38) is a later addition.
 """
 
 from __future__ import annotations
@@ -14,10 +15,12 @@ from __future__ import annotations
 import hashlib
 import sqlite3
 import warnings
+from pathlib import Path
 
 from knowledge_vault.pipeline.context import PipelineContext
 from knowledge_vault.retrieval.rows import DocumentRow, parse_chunks
 from knowledge_vault.retrieval.schema import (
+    SchemaError,
     check_schema,
     connect_db,
     create_schema,
@@ -26,10 +29,11 @@ from knowledge_vault.retrieval.schema import (
 
 
 class IndexStage:
-    """Write the initial ``knowledge.db`` slice for a fresh store.
+    """Write the ``knowledge.db`` slice for a store.
 
     Deterministic: identical chunks.jsonl input yields identical relational
     contents and search results across fresh stores (not byte-identical DBs).
+    Idempotent: unchanged slices are skipped, leaving the database untouched.
     """
 
     def execute(self, ctx: PipelineContext) -> PipelineContext:
@@ -61,8 +65,13 @@ class IndexStage:
             raise FileNotFoundError("Run ChunkStage before IndexStage.")
 
         content = chunks_jsonl.read_bytes()
-        documents = parse_chunks(content.decode("utf-8"))
         chunks_sha256 = hashlib.sha256(content).hexdigest()
+
+        if self._slice_is_up_to_date(db_path, ctx.config.name, ctx.version, chunks_sha256):
+            print(f"gold index up-to-date at v{ctx.version}")
+            return ctx
+
+        documents = parse_chunks(content.decode("utf-8"))
 
         db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = connect_db(db_path)
@@ -83,6 +92,37 @@ class IndexStage:
             f"{ctx.config.name} indexed v{ctx.version}: {len(documents)} documents, {chunk_count} chunks -> {db_path}"
         )
         return ctx
+
+    def _slice_is_up_to_date(
+        self,
+        db_path: Path,
+        source: str,
+        version: str,
+        chunks_sha256: str,
+    ) -> bool:
+        """Return True when *db_path* already indexes *source@version* unchanged.
+
+        The skip decision requires a readable, schema-compatible database whose
+        registry records the exact ``chunks_sha256`` for the slice. Any database
+        that cannot satisfy that (missing file, corrupt, incompatible schema) is
+        treated as out-of-date so the write path re-validates it and either
+        bootstraps it or surfaces the schema/database error.
+        """
+        if not db_path.is_file():
+            return False
+        try:
+            conn = connect_db(db_path)
+            try:
+                check_schema(conn)
+                row = conn.execute(
+                    "SELECT chunks_sha256 FROM indexed_sources WHERE source = ? AND version = ?",
+                    (source, version),
+                ).fetchone()
+            finally:
+                conn.close()
+        except (SchemaError, sqlite3.DatabaseError):
+            return False
+        return row is not None and row[0] == chunks_sha256
 
     def _bootstrap(self, conn: sqlite3.Connection) -> None:
         """Create the schema if absent and verify compatibility (rebuild-not-migrate)."""

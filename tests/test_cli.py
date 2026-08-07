@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -409,5 +410,27 @@ def test_ingest_gold_db_idempotent_reingestion(run_cli, sources_dir, store_dir) 
     second = run_cli(args)
     assert second.returncode == 0, second.stderr
     assert "already present" in second.stdout
+    assert db_path.read_bytes() == before
+    assert db_path.stat().st_mtime_ns == mtime_before
+
+
+@skip_without_fts5
+def test_ingest_gold_db_skips_unchanged_slice_after_bronze_reacquire(run_cli, sources_dir, store_dir) -> None:
+    args = ["ingest", "spark", "--tag", "v0.1.0", "--store", str(store_dir), "--sources", str(sources_dir)]
+    first = run_cli(args)
+    assert first.returncode == 0, first.stderr
+
+    bronze_slice = store_dir / "bronze" / "spark" / "0.1.0"
+    shutil.rmtree(bronze_slice)
+
+    db_path = knowledge_db_path(store_dir)
+    before = db_path.read_bytes()
+    mtime_before = db_path.stat().st_mtime_ns
+
+    second = run_cli(args)
+    assert second.returncode == 0, second.stderr
+    assert "gold index up-to-date at v0.1.0" in second.stdout
+    assert "spark gold index up-to-date at v0.1.0" not in second.stdout
+    assert "acquired v0.1.0" in second.stdout
     assert db_path.read_bytes() == before
     assert db_path.stat().st_mtime_ns == mtime_before
