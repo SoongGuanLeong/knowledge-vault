@@ -26,4 +26,28 @@ class SearchBackend(Protocol):
         *,
         k: int = 10,
         filters: SearchFilters | None = None,
-    ) -> list[SearchResult]: ...
+    ) -> list[SearchResult]:
+        """Keyword search over an indexed store.
+
+        Parameters
+        ----------
+        query : str
+            Search expression; interpreted backend-specifically.
+        k : int
+            Maximum number of hits to return. Must be >= 1.
+        filters : SearchFilters | None
+            Optional ``(source, version)`` constraints; ``None`` fields are
+            unbounded, and unknown filter values yield an empty result rather
+            than an error.
+
+        Returns
+        -------
+        list[SearchResult]
+            Hits best-first, or ``[]`` when nothing matches.
+
+        Raises
+        ------
+        ValueError
+            If ``query`` is blank or ``k < 1``.
+        """
+        ...

@@ -10,7 +10,7 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from knowledge_vault.retrieval.models import SearchFilters, SearchResult
+from knowledge_vault.retrieval.models import IndexedSlices, IndexedSourceRow, SearchFilters, SearchResult
 
 CONTRACT_FIELD_ORDER = ["chunk_uuid", "text", "source", "version", "path", "start_line", "end_line", "score"]
 
@@ -125,3 +125,21 @@ def test_search_filters_is_frozen() -> None:
     with pytest.raises(FrozenInstanceError):
         # Intentionally assign to a frozen field; suppress the dataclass type error.
         filters.source = "flink"  # type: ignore[misc]
+
+
+def test_from_rows_builds_indexed_slices_from_indexed_source_rows() -> None:
+    rows = [
+        IndexedSourceRow("flink", "1.17.0", "sha-f", 2, 5),
+        IndexedSourceRow("spark", "3.5.0", "sha-a", 4, 9),
+        IndexedSourceRow("spark", "4.0.0", "sha-b", 3, 7),
+    ]
+
+    result = IndexedSlices.from_rows(rows)
+
+    assert tuple((s.source, s.version) for s in result.slices) == (
+        ("flink", "1.17.0"),
+        ("spark", "3.5.0"),
+        ("spark", "4.0.0"),
+    )
+    assert result.sources == ("flink", "spark")
+    assert result.versions == ("1.17.0", "3.5.0", "4.0.0")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import NamedTuple
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,22 @@ class IndexedSlice:
     chunk_count: int
 
 
+class IndexedSourceRow(NamedTuple):
+    """A raw ``indexed_sources`` registry row.
+
+    Field order mirrors the ``indexed_sources`` schema columns and the
+    backend's ``SELECT`` order, so rows unpack directly into this type at the
+    DB boundary. Distinct from :class:`IndexedSlice`: this is the storage
+    shape; ``IndexedSlice`` is the model a caller sees.
+    """
+
+    source: str
+    version: str
+    chunks_sha256: str
+    document_count: int
+    chunk_count: int
+
+
 @dataclass(frozen=True)
 class IndexedSlices:
     """The full set of indexed (source, version) slices.
@@ -70,22 +87,30 @@ class IndexedSlices:
     versions: tuple[str, ...]
 
     @staticmethod
-    def from_rows(rows: list[tuple[str, str, str, int, int]]) -> IndexedSlices:
-        """Build an ``IndexedSlices`` from raw ``indexed_sources`` rows.
+    def from_rows(rows: list[IndexedSourceRow]) -> IndexedSlices:
+        """Build an ``IndexedSlices`` from raw ``indexed_sources`` registry rows.
 
-        Rows are expected as ``(source, version, chunks_sha256, document_count,
-        chunk_count)`` tuples in registry order. Distinct sources and versions
-        are derived preserving first-appearance order.
+        Parameters
+        ----------
+        rows : list[IndexedSourceRow]
+            Registry rows to include, in the order they are passed; distinct
+            sources and versions are derived preserving first-appearance order.
+
+        Returns
+        -------
+        IndexedSlices
+            Typed slices with ``sources`` and ``versions`` derived preserving
+            first-appearance order.
         """
         slices = tuple(
             IndexedSlice(
-                source=src,
-                version=ver,
-                chunks_sha256=sha,
-                document_count=doc_count,
-                chunk_count=chunk_count,
+                source=row.source,
+                version=row.version,
+                chunks_sha256=row.chunks_sha256,
+                document_count=row.document_count,
+                chunk_count=row.chunk_count,
             )
-            for src, ver, sha, doc_count, chunk_count in rows
+            for row in rows
         )
         seen_sources: set[str] = set()
         seen_versions: set[str] = set()

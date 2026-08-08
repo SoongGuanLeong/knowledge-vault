@@ -13,7 +13,12 @@ from pathlib import Path
 from types import TracebackType
 
 from knowledge_vault.retrieval.errors import IndexedSlicesError, SearchBackendError
-from knowledge_vault.retrieval.models import IndexedSlices, SearchFilters, SearchResult
+from knowledge_vault.retrieval.models import (
+    IndexedSlices,
+    IndexedSourceRow,
+    SearchFilters,
+    SearchResult,
+)
 from knowledge_vault.retrieval.schema import SchemaError, check_schema, connect_db
 
 _SEARCH_SQL = """
@@ -181,4 +186,4 @@ class SQLiteFTSBackend:
             rows = self._conn.execute(self._INDEXED_SLICES_SQL).fetchall()
         except sqlite3.DatabaseError as exc:
             raise IndexedSlicesError(f"cannot read indexed slices from {self._db_path}") from exc
-        return IndexedSlices.from_rows([tuple(row) for row in rows])
+        return IndexedSlices.from_rows([IndexedSourceRow(*row) for row in rows])
