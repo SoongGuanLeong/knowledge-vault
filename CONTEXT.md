@@ -55,6 +55,8 @@ Single-context vocabulary for this repo. Terms are the shared language used acro
 - **supersession** — the relation linking a successor fact to the fact it replaces within a slot. `update()` asserts a successor; `retract()` retires the current fact with no successor.
 - **current projection** — the materialized read surface of the heads of all slots' supersession chains; what `current()` and `context()` read. Deterministic, not scored.
 - **evidence** — optional references from a fact to the chunks/sources that support it, with provenance (source, document, chunk, content hash, trust class). Merged on dedup; source is evidence, not identity.
+- **conflict record** — the persistent record written when two facts claim the same slot and neither supersedes the other. Structural detection is deterministic; contradiction classification is semantic. `current()` never returns an ambiguous read.
+- **semantic coprocessor** — the LLM/user layer above the deterministic KV engine: decides what a document means, extracts facts, resolves concepts, proposes supersession, resolves conflicts. The engine enforces these explicit decisions; it never infers semantics.
 
 ## CLI operations
 
