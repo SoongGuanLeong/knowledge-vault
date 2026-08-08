@@ -48,6 +48,14 @@ Single-context vocabulary for this repo. Terms are the shared language used acro
 - **indexed_sources** — build registry inside `knowledge.db`: `(source, version)` PK, `chunks_sha256`, document/chunk counts. Provenance lives in the DB, no gold-side manifest. Each row is the registry record for one **slice**.
 - **chunk_uuid** — deterministic UUID5 identity for a chunk; the external id returned by SearchResult (not the SQLite rowid alias).
 
+## Knowledge state
+
+- **fact** — the semantic unit of knowledge-state (per ADR-0006): an immutable assertion `(subject, predicate, object)` with optional evidence and provenance. KV stores and resolves facts, not documents or chunks.
+- **slot** — the read/grouping concept a supersession chain hangs off: one `(subject, predicate)` grouping. Not the fact identity; facts of a slot are linked by `supersedes`.
+- **supersession** — the relation linking a successor fact to the fact it replaces within a slot. `update()` asserts a successor; `retract()` retires the current fact with no successor.
+- **current projection** — the materialized read surface of the heads of all slots' supersession chains; what `current()` and `context()` read. Deterministic, not scored.
+- **evidence** — optional references from a fact to the chunks/sources that support it, with provenance (source, document, chunk, content hash, trust class). Merged on dedup; source is evidence, not identity.
+
 ## CLI operations
 
 - **kv init** — creates the medallion store structure and ``metadata.json``.
