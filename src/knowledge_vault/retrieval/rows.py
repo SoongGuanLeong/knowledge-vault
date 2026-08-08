@@ -13,6 +13,27 @@ from dataclasses import dataclass
 
 CHUNK_SEPARATOR = "\0"
 
+_REQUIRED_FIELDS = ("chunk_id", "path", "text", "start_line", "end_line", "sha256")
+_STRING_FIELDS = ("chunk_id", "path", "text", "sha256")
+_INT_FIELDS = ("start_line", "end_line")
+
+
+def _validate_record(line: str, record: object) -> None:
+    if not isinstance(record, dict):
+        raise json.JSONDecodeError("chunk line must be a JSON object", line, 0)
+    missing = [field for field in _REQUIRED_FIELDS if field not in record]
+    if missing:
+        raise json.JSONDecodeError(f"chunk line missing fields: {', '.join(missing)}", line, 0)
+    bad_types = [field for field in _STRING_FIELDS if not isinstance(record[field], str)] + [
+        field for field in _INT_FIELDS if not isinstance(record[field], int) or isinstance(record[field], bool)
+    ]
+    if bad_types:
+        raise json.JSONDecodeError(
+            f"chunk line has wrong-typed fields: {', '.join(bad_types)}",
+            line,
+            0,
+        )
+
 
 @dataclass(frozen=True)
 class ChunkRow:
@@ -56,12 +77,14 @@ def parse_chunks(content: str) -> list[DocumentRow]:
     Raises
     ------
     json.JSONDecodeError
-        If any line is not valid JSON.
+        If any line is not valid JSON, is not a JSON object, is missing
+        required chunk fields, or has a required field of the wrong type.
     """
     chunks_by_path: dict[str, list[ChunkRow]] = {}
     doc_order: list[str] = []
     for line in content.splitlines():
         record = json.loads(line)
+        _validate_record(line, record)
         path = record["path"]
         if path not in chunks_by_path:
             chunks_by_path[path] = []

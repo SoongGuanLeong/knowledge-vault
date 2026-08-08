@@ -116,6 +116,42 @@ def test_parse_chunks_malformed_line_raises_json_decode_error() -> None:
         parse_chunks(content)
 
 
+def test_parse_chunks_valid_json_non_object_line_raises_json_decode_error() -> None:
+    records = [_chunk(chunk_id="c1", path="a.md", text="one")]
+    content = _jsonl(records).rstrip("\n") + "\n[1, 2, 3]\n"
+
+    with pytest.raises(json.JSONDecodeError):
+        parse_chunks(content)
+
+
+def test_parse_chunks_object_missing_required_field_raises_json_decode_error() -> None:
+    records = [_chunk(chunk_id="c1", path="a.md", text="one")]
+    content = _jsonl(records).rstrip("\n") + "\n" + json.dumps({"chunk_id": "c2"}) + "\n"
+
+    with pytest.raises(json.JSONDecodeError):
+        parse_chunks(content)
+
+
+def test_parse_chunks_wrong_typed_field_raises_json_decode_error() -> None:
+    records = [_chunk(chunk_id="c1", path="a.md", text="one")]
+    bad = _chunk(chunk_id="c2", path="b.md", text="two")
+    bad["text"] = 5
+    content = _jsonl(records).rstrip("\n") + "\n" + json.dumps(bad) + "\n"
+
+    with pytest.raises(json.JSONDecodeError):
+        parse_chunks(content)
+
+
+def test_parse_chunks_boolean_int_field_raises_json_decode_error() -> None:
+    records = [_chunk(chunk_id="c1", path="a.md", text="one")]
+    bad = _chunk(chunk_id="c2", path="b.md", text="two")
+    bad["start_line"] = True
+    content = _jsonl(records).rstrip("\n") + "\n" + json.dumps(bad) + "\n"
+
+    with pytest.raises(json.JSONDecodeError):
+        parse_chunks(content)
+
+
 def test_parse_chunks_empty_text_chunk_included() -> None:
     """Chunk with empty text is still a chunk; doc sha256 hashes the empty string."""
     records = [
